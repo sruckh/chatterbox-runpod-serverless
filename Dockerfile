@@ -1,30 +1,28 @@
 FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-pip \
-    python3.12-venv \
-    ffmpeg \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/runpod-volume/chatterbox/hf_home \
+    HF_HUB_CACHE=/runpod-volume/chatterbox/hf_cache
 
-# Create Python 3.12 symlink for compatibility
-RUN ln -s /usr/bin/python3.12 /usr/bin/python3 && \
-    ln -s /usr/bin/pip3.12 /usr/bin/pip3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3.12-dev python3-pip \
+    git ca-certificates curl build-essential ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/local/bin/pip
 
-# Set up Python environment
-COPY requirements.txt /app/
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+WORKDIR /workspace/chatterbox
 
-# Copy application code
-COPY . /app/
-WORKDIR /app
+# Copy minimal bootstrap assets; ChatterBox code is cloned in bootstrap.sh
+COPY requirements.txt /workspace/chatterbox/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Clone ChatterBox repository during container startup
-# This ensures we have the latest code
-COPY bootstrap.sh /app/bootstrap.sh
-RUN chmod +x /app/bootstrap.sh
+COPY bootstrap.sh /workspace/chatterbox/bootstrap.sh
+COPY handler.py /workspace/chatterbox/handler.py
+COPY inference.py /workspace/chatterbox/inference.py
+COPY config.py /workspace/chatterbox/config.py
 
-# Runpod serverless entrypoint (through bootstrap)
-CMD ["/app/bootstrap.sh"]
+CMD ["bash", "/workspace/chatterbox/bootstrap.sh"]

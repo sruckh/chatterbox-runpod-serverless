@@ -75,4 +75,4 @@ export PYTHONPATH="/runpod-volume/chatterbox/chatterbox:$PYTHONPATH"
 
 # Start the handler
 echo "Starting ChatterBox Turbo handler..."
-exec python3 /app/handler.py
+exec python3 /workspace/chatterbox/handler.py
