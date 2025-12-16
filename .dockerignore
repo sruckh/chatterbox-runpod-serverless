@@ -1,0 +1,158 @@
+# Git and GitHub
+.git
+.gitignore
+.github
+.serena/
+
+# Documentation
+*.md
+IMPLEMENTATION.md
+echo-tts.tar.gz
+echo-tts/
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Environment files
+.env.local
+.env.production
+.env.development
+.env.staging
+
+# Local configuration
+config.local.py
+config.local.json
+local_config.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_*.py
+tests/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Development tools
+.flake8
+.pylintrc
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Local development
+docker-compose.override.yml
+docker-compose.yml
+Dockerfile.dev
+
+# Runtime files that will be created in container
+runpod-volume/
+/tmp/
+/temp/
+
+# Backup files
+*.backup
+*.old
+*.orig
+
+# CI/CD
+.github/workflows/
+
+# Local audio files (these should be uploaded to Runpod volume)
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.webm
+*.aac
+*.opus
+audio_prompts/
+output_audio/
+
+# Model files (downloaded at runtime)
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+models/
+
+# Documentation that shouldn't be in container
+docs/
+*.rst
+LICENSE*
+
+# README files that are not the main one
+README_*.md
+
+# Local scripts
+local_*
+debug_*
+test_*
+
+# Shell history
+.bash_history
+.history
+
+# Package managers
+package-lock.json
+yarn.lock
+Pipfile.lock

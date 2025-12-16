@@ -1,0 +1,4 @@
+runpod>=1.6.0
+boto3>=1.26.0
+toml
+soundfile>=0.12.1

@@ -1,0 +1,173 @@
+.serena/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Environment files
+.env.local
+.env.production
+.env.development
+.env.staging
+
+# Local configuration
+config.local.py
+config.local.json
+local_config.json
+
+# Audio files (local testing only)
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.webm
+*.aac
+*.opus
+audio_prompts/
+output_audio/
+
+# Models (should be downloaded via HuggingFace)
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+models/
+
+# Documentation (not needed in repo)
+*.md.bak
+docs/_build/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# pytest
+.coverage
+.pytest_cache/
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# Local development scripts
+test_*.py
+debug_*.py
+local_*.py
+
+# Runtime files
+runtime/
+tmp/
+temp/
+
+# Backup files
+*.backup
+*.old
+*.orig
+
+# Linting
+.flake8
+.pylintrc
+
+# Type checking
+.mypy.ini
+
+# Docker (local)
+docker-compose.override.yml
+.dockerignore.bak
+
+# CI/CD (local only)
+.github/workflows/test.yml
+
+# Internal documentation (not for public repo)
+CLAUDE.md
+IMPLEMENTATION.md
+
+# Archives
+*.tar.gz
+*.zip
+*.7z
+
+# Reference implementations
+echo-tts/
