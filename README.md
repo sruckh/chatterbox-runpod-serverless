@@ -54,8 +54,7 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
       "text": "Hello! This is a test of the ChatterBox TTS system.",
       "language": "en",
       "audio_prompt": "reference_voice.wav",
-      "exaggeration": 0.7,
-      "session_id": "test-123"
+      "exaggeration": 0.7
     }
   }'
 ```
@@ -80,7 +79,6 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 | `text` | string | Yes | - | Text to synthesize (max 2000 chars) |
 | `language` | string | No | `"en"` | Language code (see supported languages below) |
 | `audio_prompt` | string | Yes* | - | Path to reference audio for voice cloning (relative to `/runpod-volume/chatterbox/audio_prompts/`) |
-| `session_id` | string | No | auto | Session identifier for output files |
 | `exaggeration` | float | No | `0.5` | Emotion/expressiveness level (0.0-1.0) |
 | `cfg_weight` | float | No | `0.5` | Classifier-free guidance weight (0.0-1.0) |
 | `temperature` | float | No | `0.8` | Sampling temperature (0.1-2.0) |
@@ -89,6 +87,8 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 | `top_p` | float | No | `1.0` | Top-p nucleus sampling (0.0-1.0) |
 
 *\*Required unless model has pre-prepared conditionals*
+
+**Note**: Session IDs are auto-generated internally for tracking and file naming - users do not need to provide them.
 
 ### Supported Languages
 

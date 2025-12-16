@@ -62,7 +62,6 @@ def handler(job):
                                ko, ms, nl, no, pl, pt, ru, sv, sw, tr, zh
         "audio_prompt": str (optional) - Path to audio reference file for voice cloning
                                         (relative to /runpod-volume/chatterbox/audio_prompts/)
-        "session_id": str (optional) - Session identifier for output files
         "exaggeration": float (optional) - Emotion/expressiveness (0.0-1.0, default: 0.5)
         "cfg_weight": float (optional) - Classifier-free guidance weight (0.0-1.0, default: 0.5)
         "temperature": float (optional) - Sampling temperature (default: 0.8)
@@ -70,6 +69,8 @@ def handler(job):
         "min_p": float (optional) - Minimum probability threshold (default: 0.05)
         "top_p": float (optional) - Top-p sampling (default: 1.0)
     }
+
+    Note: session_id is auto-generated internally for tracking and file naming.
 
     Returns:
     {
