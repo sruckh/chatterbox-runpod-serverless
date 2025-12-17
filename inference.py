@@ -2,25 +2,67 @@ import sys
 import os
 import torch
 import logging
-import soundfile as sf # Keep soundfile for writing, even if librosa is used for reading
-import functools # No longer needed if monkeypatch is removed
+import soundfile as sf
 from pathlib import Path
 
 # Add ChatterBox to path (it's cloned at runtime in bootstrap.sh)
 sys.path.insert(0, '/runpod-volume/chatterbox/chatterbox')
 
-# Monkeypatch soundfile.read is removed as librosa is used for reading.
-# The previous change to inference.py to use ChatterboxTurboTTS was cancelled.
-# I will make sure ChatterboxTurboTTS is imported.
-try:
-    from chatterbox.tts_turbo import ChatterboxTurboTTS
-except ImportError:
-    # This might fail during build if not cloned yet, but will work at runtime
-    pass
-
 import config
 
 log = logging.getLogger(__name__)
+
+# Try to import ChatterBox classes for monkeypatching
+try:
+    from chatterbox.tts_turbo import ChatterboxTurboTTS, Conditionals
+    from chatterbox.models.s3gen import S3GEN_SR
+    from chatterbox.models.s3tokenizer import S3_SR
+    from chatterbox.models.t3.modules.cond_enc import T3Cond
+    import librosa
+    
+    # Monkeypatch prepare_conditionals to fix Float64/Float32 mismatch
+    def patched_prepare_conditionals(self, wav_fpath, exaggeration=0.0, norm_loudness=True):
+        ## Load and norm reference wav
+        s3gen_ref_wav, _sr = librosa.load(wav_fpath, sr=S3GEN_SR)
+
+        # Assert removed or handled gracefully
+        if len(s3gen_ref_wav) / _sr <= 3.0:
+             log.warning("Audio prompt is shorter than recommended 3 seconds.")
+
+        if norm_loudness:
+            s3gen_ref_wav = self.norm_loudness(s3gen_ref_wav, _sr)
+
+        ref_16k_wav = librosa.resample(s3gen_ref_wav, orig_sr=S3GEN_SR, target_sr=S3_SR)
+
+        s3gen_ref_wav = s3gen_ref_wav[:self.DEC_COND_LEN]
+        s3gen_ref_dict = self.s3gen.embed_ref(s3gen_ref_wav, S3GEN_SR, device=self.device)
+
+        # Speech cond prompt tokens
+        t3_cond_prompt_tokens = None
+        if hasattr(self.t3.hp, 'speech_cond_prompt_len') and (plen := self.t3.hp.speech_cond_prompt_len):
+            s3_tokzr = self.s3gen.tokenizer
+            t3_cond_prompt_tokens, _ = s3_tokzr.forward([ref_16k_wav[:self.ENC_COND_LEN]], max_len=plen)
+            t3_cond_prompt_tokens = torch.atleast_2d(t3_cond_prompt_tokens).to(self.device)
+
+        # Voice-encoder speaker embedding
+        # FIX: Explicitly cast to float() to ensure float32 instead of double
+        ve_embed = torch.from_numpy(self.ve.embeds_from_wavs([ref_16k_wav], sample_rate=S3_SR)).float()
+        ve_embed = ve_embed.mean(axis=0, keepdim=True).to(self.device)
+
+        t3_cond = T3Cond(
+            speaker_emb=ve_embed,
+            cond_prompt_speech_tokens=t3_cond_prompt_tokens,
+            emotion_adv=exaggeration * torch.ones(1, 1, 1),
+        ).to(device=self.device)
+        self.conds = Conditionals(t3_cond, s3gen_ref_dict)
+
+    # Apply the patch
+    ChatterboxTurboTTS.prepare_conditionals = patched_prepare_conditionals
+    log.info("Monkeypatched ChatterboxTurboTTS.prepare_conditionals to fix type mismatch.")
+
+except ImportError:
+    # This might fail during build if not cloned yet, but will work at runtime
+    pass
 
 class ChatterBoxInference:
     def __init__(self):
@@ -29,7 +71,7 @@ class ChatterBoxInference:
 
     def load_model(self):
         """Load ChatterBox Turbo model"""
-        if self.model is None:
+        if self.model is not None:
             return self.model
 
         log.info(f"Loading ChatterBox Turbo model on {self.device}...")
@@ -93,45 +135,13 @@ class ChatterBoxInference:
 
         return str(full_path)
 
-    def prepare_conditionals(self, wav_fpath, exaggeration=0.0, norm_loudness=True):
-        ## Load and norm reference wav
-        import librosa # Moved import here to ensure patch order doesn't matter for its own imports
-        s3gen_ref_wav, _sr = librosa.load(wav_fpath, sr=config.DEFAULT_SAMPLE_RATE) # Use config sample rate here
-
-        # Assert moved to config validation or handler
-        # assert len(s3gen_ref_wav) / _sr > 5.0, "Audio prompt must be longer than 5 seconds!"
-
-        if norm_loudness:
-            s3gen_ref_wav = self.norm_loudness(s3gen_ref_wav, _sr)
-
-        # Ensure correct sample rate for VoiceEncoder
-        ref_16k_wav = librosa.resample(s3gen_ref_wav, orig_sr=config.DEFAULT_SAMPLE_RATE, target_sr=16000)
-
-        # Voice-encoder speaker embedding
-        ve_embed = torch.from_numpy(self.ve.embeds_from_wavs([ref_16k_wav], sample_rate=16000)).float() # Explicitly cast to float32
-        ve_embed = ve_embed.mean(axis=0, keepdim=True).to(self.device)
-
-        # T3Cond needs to be filled here as in the original code,
-        # but T3Cond and other related parts are internal to chatterbox.tts_turbo.py
-        # and not exposed. So, this part needs to be simplified or removed if not directly accessible.
-        # The original tts_turbo.py passes parameters to model.generate which then calls prepare_conditionals internally.
-        # So I will remove prepare_conditionals from this class and simplify generate.
-
-        # The parameters below are used by self.model.generate directly.
-        # I will remove prepare_conditionals from this class.
-
-        # THIS IS WRONG: My `prepare_conditionals` in `inference.py` is custom, the actual library has it in `tts_turbo.py`
-        # So I need to use the `generate` function's parameters and remove the `prepare_conditionals` from `inference.py`
-
-        pass # This function is moved back into ChatterboxTurboTTS internal to library, not exposed
-
     def generate(
         self,
         text,
         repetition_penalty=1.2,
         min_p=0.00,
         top_p=0.95,
-        audio_prompt=None, # Changed from audio_prompt_path
+        audio_prompt=None, 
         exaggeration=0.0,
         cfg_weight=0.0,
         temperature=0.8,
@@ -173,15 +183,15 @@ class ChatterBoxInference:
         with torch.no_grad():
             wav = self.model.generate(
                 text,
-                audio_prompt_path=audio_prompt_path, # Passed directly as the library handles preparation
+                audio_prompt_path=audio_prompt_path, 
                 temperature=temperature,
                 min_p=min_p,
                 top_p=top_p,
                 top_k=int(top_k),
                 repetition_penalty=repetition_penalty,
                 norm_loudness=norm_loudness,
-                exaggeration=exaggeration, # Pass to generate as it's in the signature, even if ignored
-                cfg_weight=cfg_weight      # Pass to generate as it's in the signature, even if ignored
+                exaggeration=exaggeration, 
+                cfg_weight=cfg_weight      
             )
 
         return wav
