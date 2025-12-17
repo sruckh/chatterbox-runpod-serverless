@@ -61,8 +61,9 @@ def apply_monkeypatches():
             ve_embed = torch.from_numpy(self.ve.embeds_from_wavs([ref_16k_wav], sample_rate=S3_SR)).to(dtype=torch.float32)
             ve_embed = ve_embed.mean(axis=0, keepdim=True).to(self.device)
 
-            # FIX: Create emotion_adv tensor with explicit float32 dtype
-            emotion_adv_tensor = torch.tensor([[[float(exaggeration)]]], dtype=torch.float32, device=self.device)
+            # FIX: Create emotion_adv tensor with explicit float32 dtype on CPU, then move to device
+            # Creating directly on device before .to() can cause tensor corruption
+            emotion_adv_tensor = torch.tensor([[[float(exaggeration)]]], dtype=torch.float32)
 
             t3_cond = T3Cond(
                 speaker_emb=ve_embed,

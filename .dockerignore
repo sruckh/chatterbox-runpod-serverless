@@ -10,6 +10,7 @@ IMPLEMENTATION.md
 echo-tts.tar.gz
 echo-tts/
 CLAUDE.md
+app.py
 
 # Python
 __pycache__/
