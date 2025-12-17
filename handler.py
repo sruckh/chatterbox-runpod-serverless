@@ -59,11 +59,13 @@ def handler(job):
         "text": str (required) - Text to synthesize
         "audio_prompt": str (optional) - Path to audio reference file for voice cloning
                                         (relative to /runpod-volume/chatterbox/audio_prompts/)
-        "temperature": float (optional) - Sampling temperature (default: 0.8)
-        "repetition_penalty": float (optional) - Repetition penalty (default: 1.2)
-        "min_p": float (optional) - Minimum probability threshold (default: 0.00)
-        "top_p": float (optional) - Top-p sampling (default: 0.95)
-        "top_k": int (optional) - Top-k sampling (default: 1000)
+        "exaggeration": float (optional) - Emotion/expressiveness level (0.0-1.0, default: 0.0, ignored by Turbo)
+        "cfg_weight": float (optional) - Classifier-free guidance weight (0.0-1.0, default: 0.0, ignored by Turbo)
+        "temperature": float (optional) - Sampling temperature (0.05-2.0, default: 0.8)
+        "repetition_penalty": float (optional) - Repetition penalty (1.0-2.0, default: 1.2)
+        "min_p": float (optional) - Minimum probability threshold (0.0-1.0, default: 0.00)
+        "top_p": float (optional) - Top-p nucleus sampling (0.0-1.0, default: 0.95)
+        "top_k": int (optional) - Top-k sampling (0-1000, default: 1000)
         "norm_loudness": bool (optional) - Normalize loudness (default: True)
     }
 
@@ -88,6 +90,8 @@ def handler(job):
     session_id = job_input.get("session_id", str(uuid.uuid4()))
 
     # ChatterBox Turbo generation parameters
+    exaggeration = float(job_input.get("exaggeration", config.DEFAULT_EXAGGERATION))
+    cfg_weight = float(job_input.get("cfg_weight", config.DEFAULT_CFG_WEIGHT))
     temperature = float(job_input.get("temperature", config.DEFAULT_TEMPERATURE))
     repetition_penalty = float(job_input.get("repetition_penalty", config.DEFAULT_REPETITION_PENALTY))
     min_p = float(job_input.get("min_p", config.DEFAULT_MIN_P))
@@ -100,6 +104,12 @@ def handler(job):
         return {"error": f"Text length exceeds maximum of {config.MAX_TEXT_LENGTH}"}
 
     # Validate generation parameters
+    if not (config.MIN_EXAGGERATION <= exaggeration <= config.MAX_EXAGGERATION):
+        return {"error": f"exaggeration must be between {config.MIN_EXAGGERATION} and {config.MAX_EXAGGERATION}"}
+
+    if not (config.MIN_CFG_WEIGHT <= cfg_weight <= config.MAX_CFG_WEIGHT):
+        return {"error": f"cfg_weight must be between {config.MIN_CFG_WEIGHT} and {config.MAX_CFG_WEIGHT}"}
+
     if not (config.MIN_TEMPERATURE <= temperature <= config.MAX_TEMPERATURE):
         return {"error": f"temperature must be between {config.MIN_TEMPERATURE} and {config.MAX_TEMPERATURE}"}
 
@@ -115,6 +125,8 @@ def handler(job):
         wav = inference_engine.generate(
             text=text,
             audio_prompt=audio_prompt,
+            exaggeration=exaggeration,
+            cfg_weight=cfg_weight,
             temperature=temperature,
             min_p=min_p,
             top_p=top_p,

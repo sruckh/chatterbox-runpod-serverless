@@ -11,7 +11,8 @@ A production-ready serverless implementation of [Resemble AI's ChatterBox](https
 - 🗣️ **Zero-Shot Voice Cloning** - Clone any voice from audio samples
 - ⚡ **Turbo Inference** - Fast inference using the ChatterBox Turbo model
 - 🔒 **Built-in Watermarking** - Automatic PerTh watermarking for responsible AI
-- 🎚️ **Advanced Controls** - Fine-tune with temperature, top-p, top-k, and repetition penalty
+- 🎭 **Emotion Control** - Adjust expressiveness with the exaggeration parameter (ignored by Turbo if > 0.0)
+- 🎚️ **Advanced Controls** - Fine-tune with temperature, top-p, top-k, repetition penalty, and CFG weight (CFG weight ignored by Turbo if > 0.0)
 - 🔊 **Loudness Normalization** - Automatic loudness normalization (-27 LUFS)
 - 📦 **S3 Integration** - Automatic upload to S3-compatible storage with presigned URLs
 
@@ -52,6 +53,8 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
     "input": {
       "text": "Hello! This is a test of the ChatterBox TTS system.",
       "audio_prompt": "reference_voice.wav",
+      "exaggeration": 0.0,
+      "cfg_weight": 0.0,
       "temperature": 0.8,
       "top_p": 0.95,
       "top_k": 50
@@ -77,6 +80,8 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 |-----------|------|----------|---------|-------------|
 | `text` | string | Yes | - | Text to synthesize (max 2000 chars) |
 | `audio_prompt` | string | Yes* | - | Path to reference audio for voice cloning (relative to `/runpod-volume/chatterbox/audio_prompts/`) |
+| `exaggeration` | float | No | `0.0` | Emotion/expressiveness level (0.0-1.0, ignored by Turbo if > 0.0) |
+| `cfg_weight` | float | No | `0.0` | Classifier-free guidance weight (0.0-1.0, ignored by Turbo if > 0.0) |
 | `temperature` | float | No | `0.8` | Sampling temperature (0.05-2.0) |
 | `top_p` | float | No | `0.95` | Top-p nucleus sampling (0.0-1.0) |
 | `top_k` | int | No | `1000` | Top-k sampling (0-1000) |

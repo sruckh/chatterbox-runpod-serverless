@@ -25,6 +25,7 @@ AUDIO_PROMPTS_DIR = f"{CHATTERBOX_DIR}/audio_prompts"  # For voice cloning refer
 
 # Application Configuration
 MAX_TEXT_LENGTH = int(os.environ.get("MAX_TEXT_LENGTH", "2000"))
+DEFAULT_SAMPLE_RATE = int(os.environ.get("DEFAULT_SAMPLE_RATE", "24000")) # Used for librosa loading
 
 # Audio configuration
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac", ".opus"}
@@ -32,6 +33,8 @@ MIN_AUDIO_DURATION = 3.0  # seconds
 MAX_AUDIO_DURATION = 30.0  # seconds
 
 # ChatterBox Turbo generation parameters
+DEFAULT_EXAGGERATION = 0.0  # Emotion/expressiveness (0.0-1.0, ignored by Turbo)
+DEFAULT_CFG_WEIGHT = 0.0    # Classifier-free guidance weight (0.0-1.0, ignored by Turbo)
 DEFAULT_TEMPERATURE = 0.8    # Sampling temperature
 DEFAULT_REPETITION_PENALTY = 1.2  # Repetition penalty
 DEFAULT_MIN_P = 0.00        # Minimum probability threshold
@@ -40,6 +43,10 @@ DEFAULT_TOP_K = 1000        # Top-k sampling
 DEFAULT_NORM_LOUDNESS = True # Normalize loudness to -27 LUFS
 
 # Parameter validation ranges
+MIN_EXAGGERATION = 0.0
+MAX_EXAGGERATION = 1.0
+MIN_CFG_WEIGHT = 0.0
+MAX_CFG_WEIGHT = 1.0
 MIN_TEMPERATURE = 0.05
 MAX_TEMPERATURE = 2.0
 MIN_TOP_P = 0.0
