@@ -12,57 +12,74 @@ import config
 
 log = logging.getLogger(__name__)
 
-# Try to import ChatterBox classes for monkeypatching
-try:
-    from chatterbox.tts_turbo import ChatterboxTurboTTS, Conditionals
-    from chatterbox.models.s3gen import S3GEN_SR
-    from chatterbox.models.s3tokenizer import S3_SR
-    from chatterbox.models.t3.modules.cond_enc import T3Cond
-    import librosa
-    
-    # Monkeypatch prepare_conditionals to fix Float64/Float32 mismatch
-    def patched_prepare_conditionals(self, wav_fpath, exaggeration=0.0, norm_loudness=True):
-        ## Load and norm reference wav
-        s3gen_ref_wav, _sr = librosa.load(wav_fpath, sr=S3GEN_SR)
+# Monkeypatch flag
+_MONKEYPATCH_APPLIED = False
 
-        # Assert removed or handled gracefully
-        if len(s3gen_ref_wav) / _sr <= 3.0:
-             log.warning("Audio prompt is shorter than recommended 3 seconds.")
+def apply_monkeypatches():
+    """Apply monkeypatches to fix Float64/Float32 type mismatches"""
+    global _MONKEYPATCH_APPLIED
 
-        if norm_loudness:
-            s3gen_ref_wav = self.norm_loudness(s3gen_ref_wav, _sr)
+    if _MONKEYPATCH_APPLIED:
+        log.debug("Monkeypatches already applied, skipping")
+        return
 
-        ref_16k_wav = librosa.resample(s3gen_ref_wav, orig_sr=S3GEN_SR, target_sr=S3_SR)
+    try:
+        from chatterbox.tts_turbo import ChatterboxTurboTTS, Conditionals
+        from chatterbox.models.s3gen import S3GEN_SR
+        from chatterbox.models.s3tokenizer import S3_SR
+        from chatterbox.models.t3.modules.cond_enc import T3Cond
+        import librosa
 
-        s3gen_ref_wav = s3gen_ref_wav[:self.DEC_COND_LEN]
-        s3gen_ref_dict = self.s3gen.embed_ref(s3gen_ref_wav, S3GEN_SR, device=self.device)
+        # Monkeypatch prepare_conditionals to fix Float64/Float32 mismatch
+        original_prepare_conditionals = ChatterboxTurboTTS.prepare_conditionals
 
-        # Speech cond prompt tokens
-        t3_cond_prompt_tokens = None
-        if hasattr(self.t3.hp, 'speech_cond_prompt_len') and (plen := self.t3.hp.speech_cond_prompt_len):
-            s3_tokzr = self.s3gen.tokenizer
-            t3_cond_prompt_tokens, _ = s3_tokzr.forward([ref_16k_wav[:self.ENC_COND_LEN]], max_len=plen)
-            t3_cond_prompt_tokens = torch.atleast_2d(t3_cond_prompt_tokens).to(self.device)
+        def patched_prepare_conditionals(self, wav_fpath, exaggeration=0.0, norm_loudness=True):
+            ## Load and norm reference wav
+            s3gen_ref_wav, _sr = librosa.load(wav_fpath, sr=S3GEN_SR, dtype='float32')
 
-        # Voice-encoder speaker embedding
-        # FIX: Explicitly cast to float() to ensure float32 instead of double
-        ve_embed = torch.from_numpy(self.ve.embeds_from_wavs([ref_16k_wav], sample_rate=S3_SR)).float()
-        ve_embed = ve_embed.mean(axis=0, keepdim=True).to(self.device)
+            # Assert removed or handled gracefully
+            if len(s3gen_ref_wav) / _sr <= 3.0:
+                 log.warning("Audio prompt is shorter than recommended 3 seconds.")
 
-        t3_cond = T3Cond(
-            speaker_emb=ve_embed,
-            cond_prompt_speech_tokens=t3_cond_prompt_tokens,
-            emotion_adv=torch.tensor([[[exaggeration]]], dtype=torch.float32),
-        ).to(device=self.device)
-        self.conds = Conditionals(t3_cond, s3gen_ref_dict)
+            if norm_loudness:
+                s3gen_ref_wav = self.norm_loudness(s3gen_ref_wav, _sr)
 
-    # Apply the patch
-    ChatterboxTurboTTS.prepare_conditionals = patched_prepare_conditionals
-    log.info("Monkeypatched ChatterboxTurboTTS.prepare_conditionals to fix type mismatch.")
+            ref_16k_wav = librosa.resample(s3gen_ref_wav, orig_sr=S3GEN_SR, target_sr=S3_SR).astype('float32')
 
-except ImportError:
-    # This might fail during build if not cloned yet, but will work at runtime
-    pass
+            s3gen_ref_wav = s3gen_ref_wav[:self.DEC_COND_LEN]
+            s3gen_ref_dict = self.s3gen.embed_ref(s3gen_ref_wav, S3GEN_SR, device=self.device)
+
+            # Speech cond prompt tokens
+            t3_cond_prompt_tokens = None
+            if hasattr(self.t3.hp, 'speech_cond_prompt_len') and (plen := self.t3.hp.speech_cond_prompt_len):
+                s3_tokzr = self.s3gen.tokenizer
+                t3_cond_prompt_tokens, _ = s3_tokzr.forward([ref_16k_wav[:self.ENC_COND_LEN]], max_len=plen)
+                t3_cond_prompt_tokens = torch.atleast_2d(t3_cond_prompt_tokens).to(self.device)
+
+            # Voice-encoder speaker embedding
+            # FIX: Explicitly cast to float32 to ensure float32 instead of double
+            ve_embed = torch.from_numpy(self.ve.embeds_from_wavs([ref_16k_wav], sample_rate=S3_SR)).to(dtype=torch.float32)
+            ve_embed = ve_embed.mean(axis=0, keepdim=True).to(self.device)
+
+            # FIX: Create emotion_adv tensor with explicit float32 dtype
+            emotion_adv_tensor = torch.tensor([[[float(exaggeration)]]], dtype=torch.float32, device=self.device)
+
+            t3_cond = T3Cond(
+                speaker_emb=ve_embed,
+                cond_prompt_speech_tokens=t3_cond_prompt_tokens,
+                emotion_adv=emotion_adv_tensor,
+            ).to(device=self.device)
+            self.conds = Conditionals(t3_cond, s3gen_ref_dict)
+
+        # Apply the patch
+        ChatterboxTurboTTS.prepare_conditionals = patched_prepare_conditionals
+        _MONKEYPATCH_APPLIED = True
+        log.info("✓ Monkeypatched ChatterboxTurboTTS.prepare_conditionals to fix Float32/Float64 type mismatches")
+
+    except ImportError as e:
+        log.warning(f"Could not apply monkeypatch (ChatterBox not yet available): {e}")
+    except Exception as e:
+        log.error(f"Error applying monkeypatch: {e}", exc_info=True)
 
 class ChatterBoxInference:
     def __init__(self):
@@ -76,6 +93,9 @@ class ChatterBoxInference:
 
         log.info(f"Loading ChatterBox Turbo model on {self.device}...")
         try:
+            # Apply monkeypatches before loading model
+            apply_monkeypatches()
+
             # Import here to avoid build-time errors
             from chatterbox.tts_turbo import ChatterboxTurboTTS
 
