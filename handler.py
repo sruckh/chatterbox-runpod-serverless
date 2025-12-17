@@ -57,17 +57,14 @@ def handler(job):
     Expected input format:
     {
         "text": str (required) - Text to synthesize
-        "language": str (optional) - Language code (default: "en")
-                    Supported: ar, da, de, el, en, es, fi, fr, he, hi, it, ja,
-                               ko, ms, nl, no, pl, pt, ru, sv, sw, tr, zh
         "audio_prompt": str (optional) - Path to audio reference file for voice cloning
                                         (relative to /runpod-volume/chatterbox/audio_prompts/)
-        "exaggeration": float (optional) - Emotion/expressiveness (0.0-1.0, default: 0.5)
-        "cfg_weight": float (optional) - Classifier-free guidance weight (0.0-1.0, default: 0.5)
         "temperature": float (optional) - Sampling temperature (default: 0.8)
-        "repetition_penalty": float (optional) - Repetition penalty (default: 2.0)
-        "min_p": float (optional) - Minimum probability threshold (default: 0.05)
-        "top_p": float (optional) - Top-p sampling (default: 1.0)
+        "repetition_penalty": float (optional) - Repetition penalty (default: 1.2)
+        "min_p": float (optional) - Minimum probability threshold (default: 0.00)
+        "top_p": float (optional) - Top-p sampling (default: 0.95)
+        "top_k": int (optional) - Top-k sampling (default: 1000)
+        "norm_loudness": bool (optional) - Normalize loudness (default: True)
     }
 
     Note: session_id is auto-generated internally for tracking and file naming.
@@ -75,7 +72,6 @@ def handler(job):
     Returns:
     {
         "status": "success",
-        "language": str,
         "sample_rate": int,
         "duration_sec": float,
         "audio_url": str (if S3 configured) OR "audio_base64": str (fallback)
@@ -88,52 +84,43 @@ def handler(job):
     if not text:
         return {"error": "Missing 'text' parameter"}
 
-    language = job_input.get("language", config.DEFAULT_LANGUAGE)
     audio_prompt = job_input.get("audio_prompt")
     session_id = job_input.get("session_id", str(uuid.uuid4()))
 
-    # ChatterBox generation parameters
-    exaggeration = float(job_input.get("exaggeration", config.DEFAULT_EXAGGERATION))
-    cfg_weight = float(job_input.get("cfg_weight", config.DEFAULT_CFG_WEIGHT))
+    # ChatterBox Turbo generation parameters
     temperature = float(job_input.get("temperature", config.DEFAULT_TEMPERATURE))
     repetition_penalty = float(job_input.get("repetition_penalty", config.DEFAULT_REPETITION_PENALTY))
     min_p = float(job_input.get("min_p", config.DEFAULT_MIN_P))
     top_p = float(job_input.get("top_p", config.DEFAULT_TOP_P))
+    top_k = int(job_input.get("top_k", config.DEFAULT_TOP_K))
+    norm_loudness = job_input.get("norm_loudness", config.DEFAULT_NORM_LOUDNESS)
 
     # Validate input
     if len(text) > config.MAX_TEXT_LENGTH:
         return {"error": f"Text length exceeds maximum of {config.MAX_TEXT_LENGTH}"}
 
-    # Validate language
-    if language not in config.SUPPORTED_LANGUAGES:
-        return {"error": f"Unsupported language '{language}'. Supported: {', '.join(sorted(config.SUPPORTED_LANGUAGES))}"}
-
     # Validate generation parameters
-    if not (config.MIN_EXAGGERATION <= exaggeration <= config.MAX_EXAGGERATION):
-        return {"error": f"exaggeration must be between {config.MIN_EXAGGERATION} and {config.MAX_EXAGGERATION}"}
-
-    if not (config.MIN_CFG_WEIGHT <= cfg_weight <= config.MAX_CFG_WEIGHT):
-        return {"error": f"cfg_weight must be between {config.MIN_CFG_WEIGHT} and {config.MAX_CFG_WEIGHT}"}
-
     if not (config.MIN_TEMPERATURE <= temperature <= config.MAX_TEMPERATURE):
         return {"error": f"temperature must be between {config.MIN_TEMPERATURE} and {config.MAX_TEMPERATURE}"}
 
     if not (config.MIN_TOP_P <= top_p <= config.MAX_TOP_P):
         return {"error": f"top_p must be between {config.MIN_TOP_P} and {config.MAX_TOP_P}"}
+        
+    if not (config.MIN_TOP_K <= top_k <= config.MAX_TOP_K):
+        return {"error": f"top_k must be between {config.MIN_TOP_K} and {config.MAX_TOP_K}"}
 
     try:
         # Generate audio
         # wav is expected to be a tensor or numpy array
         wav = inference_engine.generate(
             text=text,
-            language=language,
             audio_prompt=audio_prompt,
-            exaggeration=exaggeration,
-            cfg_weight=cfg_weight,
             temperature=temperature,
-            repetition_penalty=repetition_penalty,
             min_p=min_p,
-            top_p=top_p
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            norm_loudness=norm_loudness
         )
 
         # Get the model's sample rate (ChatterBox models have built-in sample rate)
@@ -180,7 +167,6 @@ def handler(job):
         
         response = {
             "status": "success",
-            "language": language,
             "sample_rate": sample_rate,
             "duration_sec": len(wav) / sample_rate
         }

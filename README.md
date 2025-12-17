@@ -4,16 +4,15 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![CUDA 12.8](https://img.shields.io/badge/CUDA-12.8-green.svg)](https://developer.nvidia.com/cuda-downloads)
 
-A production-ready serverless implementation of [Resemble AI's ChatterBox](https://github.com/resemble-ai/chatterbox) text-to-speech model deployed on Runpod. Features zero-shot voice cloning, 23+ language support, and advanced generation controls.
+A production-ready serverless implementation of [Resemble AI's ChatterBox](https://github.com/resemble-ai/chatterbox) text-to-speech model (Turbo variant) deployed on Runpod. Features zero-shot voice cloning and advanced generation controls.
 
 ## Features
 
-- 🗣️ **Zero-Shot Voice Cloning** - Clone any voice from 3-30 second audio samples
-- 🌍 **23+ Languages** - Arabic, Danish, German, Greek, English, Spanish, Finnish, French, Hebrew, Hindi, Italian, Japanese, Korean, Malay, Dutch, Norwegian, Polish, Portuguese, Russian, Swedish, Swahili, Turkish, Chinese
-- 🎭 **Emotion Control** - Adjust expressiveness with the exaggeration parameter
-- ⚡ **Single-Step Generation** - Real-time factor <0.5 for fast inference
+- 🗣️ **Zero-Shot Voice Cloning** - Clone any voice from audio samples
+- ⚡ **Turbo Inference** - Fast inference using the ChatterBox Turbo model
 - 🔒 **Built-in Watermarking** - Automatic PerTh watermarking for responsible AI
-- 🎚️ **Advanced Controls** - Fine-tune with CFG, temperature, and sampling parameters
+- 🎚️ **Advanced Controls** - Fine-tune with temperature, top-p, top-k, and repetition penalty
+- 🔊 **Loudness Normalization** - Automatic loudness normalization (-27 LUFS)
 - 📦 **S3 Integration** - Automatic upload to S3-compatible storage with presigned URLs
 
 ## Quick Start
@@ -52,9 +51,10 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
   -d '{
     "input": {
       "text": "Hello! This is a test of the ChatterBox TTS system.",
-      "language": "en",
       "audio_prompt": "reference_voice.wav",
-      "exaggeration": 0.7
+      "temperature": 0.8,
+      "top_p": 0.95,
+      "top_k": 50
     }
   }'
 ```
@@ -63,7 +63,6 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 ```json
 {
   "status": "success",
-  "language": "en",
   "sample_rate": 24000,
   "duration_sec": 3.45,
   "audio_url": "https://presigned-s3-url.com/audio.ogg"
@@ -77,32 +76,21 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `text` | string | Yes | - | Text to synthesize (max 2000 chars) |
-| `language` | string | No | `"en"` | Language code (see supported languages below) |
 | `audio_prompt` | string | Yes* | - | Path to reference audio for voice cloning (relative to `/runpod-volume/chatterbox/audio_prompts/`) |
-| `exaggeration` | float | No | `0.5` | Emotion/expressiveness level (0.0-1.0) |
-| `cfg_weight` | float | No | `0.5` | Classifier-free guidance weight (0.0-1.0) |
-| `temperature` | float | No | `0.8` | Sampling temperature (0.1-2.0) |
-| `repetition_penalty` | float | No | `2.0` | Penalty for repeating tokens |
-| `min_p` | float | No | `0.05` | Minimum probability threshold |
-| `top_p` | float | No | `1.0` | Top-p nucleus sampling (0.0-1.0) |
+| `temperature` | float | No | `0.8` | Sampling temperature (0.05-2.0) |
+| `top_p` | float | No | `0.95` | Top-p nucleus sampling (0.0-1.0) |
+| `top_k` | int | No | `1000` | Top-k sampling (0-1000) |
+| `repetition_penalty` | float | No | `1.2` | Penalty for repeating tokens (1.0-2.0) |
+| `min_p` | float | No | `0.00` | Minimum probability threshold (0.0-1.0) |
+| `norm_loudness` | bool | No | `true` | Normalize loudness to -27 LUFS |
 
 *\*Required unless model has pre-prepared conditionals*
 
 **Note**: Session IDs are auto-generated internally for tracking and file naming - users do not need to provide them.
 
-### Supported Languages
-
-```
-ar (Arabic), da (Danish), de (German), el (Greek), en (English),
-es (Spanish), fi (Finnish), fr (French), he (Hebrew), hi (Hindi),
-it (Italian), ja (Japanese), ko (Korean), ms (Malay), nl (Dutch),
-no (Norwegian), pl (Polish), pt (Portuguese), ru (Russian),
-sv (Swedish), sw (Swahili), tr (Turkish), zh (Chinese)
-```
-
 ### Audio Prompt Guidelines
 
-- **Duration**: 3-30 seconds recommended
+- **Duration**: 3-10 seconds recommended (clean, single speaker)
 - **Formats**: `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.webm`, `.aac`, `.opus`
 - **Quality**: Clear speech, minimal background noise
 - **Location**: Upload to `/runpod-volume/chatterbox/audio_prompts/` on the Runpod volume
@@ -129,7 +117,7 @@ sv (Swedish), sw (Swahili), tr (Turkish), zh (Chinese)
 │  │  ┌──────────────────────────────────────────────────┐  │ │
 │  │  │ handler.py → inference.py                        │  │ │
 │  │  │ • Validate input                                 │  │ │
-│  │  │ • ChatterboxMultilingualTTS                      │  │ │
+│  │  │ • ChatterboxTurboTTS                             │  │ │
 │  │  │ • Generate audio with watermark                  │  │ │
 │  │  │ • Upload to S3 or return base64                  │  │ │
 │  │  └──────────────────────────────────────────────────┘  │ │
@@ -151,7 +139,7 @@ sv (Swedish), sw (Swahili), tr (Turkish), zh (Chinese)
 - **Subsequent Starts**: ~30 seconds (model loading only)
 - **Generation Speed**: Real-time factor <0.5
 - **VRAM Usage**: <8GB
-- **Model Size**: 350M parameters
+- **Model Size**: ~350M parameters
 
 ## Configuration
 
@@ -168,8 +156,7 @@ sv (Swedish), sw (Swahili), tr (Turkish), zh (Chinese)
 - `S3_REGION` - S3 region (default: "us-east-1")
 
 **Optional (Configuration):**
-- `DEFAULT_LANGUAGE` - Default language (default: "en")
-- `DEFAULT_SAMPLE_RATE` - Default sample rate (default: "22050")
+- `DEFAULT_SAMPLE_RATE` - Default sample rate (default: "24000")
 - `MAX_TEXT_LENGTH` - Max text length (default: "2000")
 
 ## Development
@@ -203,7 +190,7 @@ chatterbox-runpod-serverless/
 **2. Voice Cloning Not Working**
 - Ensure audio reference is uploaded to `/runpod-volume/chatterbox/audio_prompts/`
 - Verify audio format is supported
-- Check audio duration (3-30 seconds recommended)
+- Use short, clear audio clips (3-10 seconds)
 
 **3. Slow First Startup**
 - Expected behavior on first run

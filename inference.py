@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, '/runpod-volume/chatterbox/chatterbox')
 
 try:
-    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+    from chatterbox.tts_turbo import ChatterboxTurboTTS
 except ImportError:
     # This might fail during build if not cloned yet, but will work at runtime
     pass
@@ -24,16 +24,16 @@ class ChatterBoxInference:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def load_model(self):
-        """Load ChatterBox Multilingual model"""
+        """Load ChatterBox Turbo model"""
         if self.model is not None:
             return self.model
 
-        log.info(f"Loading ChatterBox Multilingual model on {self.device}...")
+        log.info(f"Loading ChatterBox Turbo model on {self.device}...")
         try:
             # Import here to avoid build-time errors
-            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+            from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-            self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
+            self.model = ChatterboxTurboTTS.from_pretrained(device=self.device)
             log.info(f"Model loaded successfully (sample rate: {self.model.sr})")
             return self.model
         except Exception as e:
@@ -92,27 +92,25 @@ class ChatterBoxInference:
     def generate(
         self,
         text,
-        language="en",
         audio_prompt=None,
-        exaggeration=0.5,
-        cfg_weight=0.5,
         temperature=0.8,
-        repetition_penalty=2.0,
-        min_p=0.05,
-        top_p=1.0,
+        min_p=0.00,
+        top_p=0.95,
+        top_k=1000,
+        repetition_penalty=1.2,
+        norm_loudness=True
     ):
-        """Generate audio from text using ChatterboxMultilingualTTS
+        """Generate audio from text using ChatterboxTurboTTS
 
         Args:
             text: Text to synthesize
-            language: Language code (e.g., "en", "fr", "es", etc.)
             audio_prompt: Path to audio reference file for voice cloning
-            exaggeration: Emotion/expressiveness level (0.0-1.0, default: 0.5)
-            cfg_weight: Classifier-free guidance weight (0.0-1.0, default: 0.5)
             temperature: Sampling temperature (default: 0.8)
-            repetition_penalty: Repetition penalty (default: 2.0)
-            min_p: Minimum probability threshold (default: 0.05)
-            top_p: Top-p sampling (default: 1.0)
+            min_p: Minimum probability threshold (default: 0.00)
+            top_p: Top-p sampling (default: 0.95)
+            top_k: Top-k sampling (default: 1000)
+            repetition_penalty: Repetition penalty (default: 1.2)
+            norm_loudness: Normalize loudness to -27 LUFS (default: True)
 
         Returns:
             wav: Generated audio as tensor (with watermark applied)
@@ -120,7 +118,7 @@ class ChatterBoxInference:
         if self.model is None:
             self.load_model()
 
-        log.info(f"Generating audio for text: {text[:50]}... (language: {language})")
+        log.info(f"Generating audio for text: {text[:50]}...")
 
         # Process audio prompt if provided
         audio_prompt_path = self.process_audio_prompt(audio_prompt)
@@ -134,15 +132,14 @@ class ChatterBoxInference:
 
         with torch.no_grad():
             wav = self.model.generate(
-                text=text,
-                language_id=language,
+                text,
                 audio_prompt_path=audio_prompt_path,
-                exaggeration=exaggeration,
-                cfg_weight=cfg_weight,
                 temperature=temperature,
-                repetition_penalty=repetition_penalty,
                 min_p=min_p,
                 top_p=top_p,
+                top_k=int(top_k),
+                repetition_penalty=repetition_penalty,
+                norm_loudness=norm_loudness,
             )
 
         return wav
