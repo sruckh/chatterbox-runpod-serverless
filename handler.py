@@ -143,6 +143,7 @@ def handler(job):
         log.info(f"Using model sample rate: {sample_rate}")
 
         # Convert to audio bytes (OGG Vorbis)
+        log.info("Converting audio tensor to numpy...")
         audio_buffer = io.BytesIO()
         # Ensure wav is cpu numpy
         if hasattr(wav, 'cpu'):
@@ -155,6 +156,7 @@ def handler(job):
         if len(wav.shape) > 1 and wav.shape[0] < wav.shape[1]:
              wav = wav.T
 
+        log.info(f"Writing audio to buffer (shape: {wav.shape})...")
         sf.write(audio_buffer, wav, sample_rate, format='OGG', subtype='VORBIS')
         audio_buffer.seek(0)
         
@@ -166,12 +168,14 @@ def handler(job):
         # Ensure output directory exists (it should be created by bootstrap, but good for safety)
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         
+        log.info(f"Saving audio locally to {output_path}...")
         with open(output_path, "wb") as f:
             f.write(audio_buffer.getbuffer())
         
         # Reset buffer for S3 upload
         audio_buffer.seek(0)
         
+        log.info("Uploading to S3 (if configured)...")
         s3_url = upload_to_s3(audio_buffer, filename)
         
         response = {
@@ -189,6 +193,7 @@ def handler(job):
             b64_audio = base64.b64encode(audio_buffer.read()).decode("utf-8")
             response["audio_base64"] = b64_audio
             
+        log.info("Handler completed successfully.")
         return response
 
     except Exception as e:
