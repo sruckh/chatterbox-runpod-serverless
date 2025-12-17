@@ -3,10 +3,21 @@ import os
 import torch
 import logging
 import soundfile as sf
+import functools
 from pathlib import Path
 
 # Add ChatterBox to path (it's cloned at runtime in bootstrap.sh)
 sys.path.insert(0, '/runpod-volume/chatterbox/chatterbox')
+
+# Monkeypatch soundfile.read to force float32 to avoid Double vs Float errors in ChatterBox
+if not hasattr(sf, '_original_read'):
+    sf._original_read = sf.read
+    @functools.wraps(sf._original_read)
+    def _patched_read(*args, **kwargs):
+        if 'dtype' not in kwargs:
+            kwargs['dtype'] = 'float32'
+        return sf._original_read(*args, **kwargs)
+    sf.read = _patched_read
 
 try:
     from chatterbox.tts_turbo import ChatterboxTurboTTS
