@@ -43,6 +43,9 @@ if [ ! -f "$FIRST_RUN_FLAG" ]; then
     echo "Modifying ChatterBox dependencies..."
     cd /runpod-volume/chatterbox/chatterbox
 
+    # Install toml for the modification script
+    pip install toml
+
     # Create a temporary pyproject.toml without torch, torchaudio, and gradio
     python << 'EOF'
 import toml
