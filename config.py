@@ -26,7 +26,7 @@ AUDIO_PROMPTS_DIR = f"{CHATTERBOX_DIR}/audio_prompts"  # For voice cloning refer
 # Application Configuration
 MAX_TEXT_LENGTH = int(os.environ.get("MAX_TEXT_LENGTH", "2000"))
 DEFAULT_SAMPLE_RATE = int(os.environ.get("DEFAULT_SAMPLE_RATE", "24000")) # Used for librosa loading
-MAX_CHUNK_CHARS = int(os.environ.get("MAX_CHUNK_CHARS", "550")) # Max chars per chunk for stable generation
+MAX_CHUNK_CHARS = int(os.environ.get("MAX_CHUNK_CHARS", "300")) # Max chars per chunk (official demo uses 300, tested up to 550)
 
 # Audio configuration
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac", ".opus"}
