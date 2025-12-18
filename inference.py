@@ -1,6 +1,7 @@
 import sys
 import os
 import torch
+import numpy as np
 import logging
 import soundfile as sf
 from pathlib import Path
@@ -86,6 +87,128 @@ class ChatterBoxInference:
     def __init__(self):
         self.model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.max_chunk_chars = config.MAX_CHUNK_CHARS  # Maximum characters per chunk for stable generation
+
+    def _smart_chunk_text(self, text: str, max_chars: int = None) -> list[str]:
+        """Split text into chunks at natural boundaries (sentences, clauses)
+
+        Args:
+            text: Text to chunk
+            max_chars: Maximum characters per chunk (default: self.max_chunk_chars)
+
+        Returns:
+            List of text chunks
+        """
+        if max_chars is None:
+            max_chars = self.max_chunk_chars
+
+        # If text is short enough, return as-is
+        if len(text) <= max_chars:
+            return [text]
+
+        chunks = []
+
+        # Primary split on sentence endings
+        sentence_endings = ['. ', '! ', '? ', '.\n', '!\n', '?\n']
+        # Secondary split on clause boundaries
+        clause_boundaries = [', ', '; ', ': ', ' - ', ' — ']
+
+        def split_at_boundaries(text_segment: str, boundaries: list[str]) -> list[str]:
+            """Split text at specified boundaries"""
+            parts = []
+            current = ""
+
+            i = 0
+            while i < len(text_segment):
+                current += text_segment[i]
+
+                # Check if we're at a boundary
+                for boundary in boundaries:
+                    if text_segment[i:i+len(boundary)] == boundary:
+                        if len(current) > 0:
+                            parts.append(current)
+                            current = ""
+                        i += len(boundary) - 1
+                        break
+                i += 1
+
+            if current:
+                parts.append(current)
+
+            return parts
+
+        # First try splitting on sentences
+        segments = split_at_boundaries(text, sentence_endings)
+
+        # Combine segments into chunks respecting max_chars
+        current_chunk = ""
+
+        for segment in segments:
+            segment = segment.strip()
+            if not segment:
+                continue
+
+            # If single segment is too long, split on clause boundaries
+            if len(segment) > max_chars:
+                # First save current chunk if exists
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+
+                # Split long segment on clauses
+                clauses = split_at_boundaries(segment, clause_boundaries)
+
+                for clause in clauses:
+                    clause = clause.strip()
+                    if not clause:
+                        continue
+
+                    # If single clause is still too long, hard split by words
+                    if len(clause) > max_chars:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = ""
+
+                        words = clause.split()
+                        for word in words:
+                            if len(current_chunk) + len(word) + 1 <= max_chars:
+                                current_chunk += " " + word if current_chunk else word
+                            else:
+                                if current_chunk:
+                                    chunks.append(current_chunk.strip())
+                                current_chunk = word
+                    else:
+                        # Clause fits, check if we can add to current chunk
+                        if len(current_chunk) + len(clause) + 1 <= max_chars:
+                            current_chunk += " " + clause if current_chunk else clause
+                        else:
+                            if current_chunk:
+                                chunks.append(current_chunk.strip())
+                            current_chunk = clause
+            else:
+                # Segment fits in max_chars, try to add to current chunk
+                if len(current_chunk) + len(segment) + 1 <= max_chars:
+                    current_chunk += " " + segment if current_chunk else segment
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                    current_chunk = segment
+
+        # Add final chunk
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        # Filter empty chunks
+        chunks = [c for c in chunks if c.strip()]
+
+        if not chunks:
+            return [text]  # Fallback to original text
+
+        log.info(f"Split text into {len(chunks)} chunks (max {max_chars} chars each)")
+        for i, chunk in enumerate(chunks, 1):
+            log.debug(f"Chunk {i} ({len(chunk)} chars): {chunk[:50]}...")
+
+        return chunks
 
     def load_model(self):
         """Load ChatterBox Turbo model"""
@@ -162,17 +285,17 @@ class ChatterBoxInference:
         repetition_penalty=1.2,
         min_p=0.00,
         top_p=0.95,
-        audio_prompt=None, 
+        audio_prompt=None,
         exaggeration=0.0,
         cfg_weight=0.0,
         temperature=0.8,
         top_k=1000,
         norm_loudness=True,
     ):
-        """Generate audio from text using ChatterboxTurboTTS
+        """Generate audio from text using ChatterboxTurboTTS with smart chunking
 
         Args:
-            text: Text to synthesize
+            text: Text to synthesize (automatically chunked if > 550 chars)
             repetition_penalty: Repetition penalty (default: 1.2)
             min_p: Minimum probability threshold (default: 0.00)
             top_p: Top-p sampling (default: 0.95)
@@ -189,7 +312,7 @@ class ChatterBoxInference:
         if self.model is None:
             self.load_model()
 
-        log.info(f"Generating audio for text: {text[:50]}...")
+        log.info(f"Generating audio for text ({len(text)} chars): {text[:50]}...")
 
         # Process audio prompt if provided
         audio_prompt_path = self.process_audio_prompt(audio_prompt)
@@ -201,18 +324,57 @@ class ChatterBoxInference:
                 "or model must have pre-prepared conditionals"
             )
 
-        with torch.no_grad():
-            wav = self.model.generate(
-                text,
-                audio_prompt_path=audio_prompt_path, 
-                temperature=temperature,
-                min_p=min_p,
-                top_p=top_p,
-                top_k=int(top_k),
-                repetition_penalty=repetition_penalty,
-                norm_loudness=norm_loudness,
-                exaggeration=exaggeration, 
-                cfg_weight=cfg_weight      
-            )
+        # Smart chunk text if it's too long
+        chunks = self._smart_chunk_text(text, self.max_chunk_chars)
 
-        return wav
+        if len(chunks) == 1:
+            # Single chunk, generate directly
+            with torch.no_grad():
+                wav = self.model.generate(
+                    text,
+                    audio_prompt_path=audio_prompt_path,
+                    temperature=temperature,
+                    min_p=min_p,
+                    top_p=top_p,
+                    top_k=int(top_k),
+                    repetition_penalty=repetition_penalty,
+                    norm_loudness=norm_loudness,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight
+                )
+            return wav
+        else:
+            # Multiple chunks, generate and concatenate
+            log.info(f"Processing {len(chunks)} chunks...")
+            audio_chunks = []
+
+            with torch.no_grad():
+                for i, chunk_text in enumerate(chunks, 1):
+                    log.info(f"Generating chunk {i}/{len(chunks)} ({len(chunk_text)} chars)...")
+
+                    chunk_wav = self.model.generate(
+                        chunk_text,
+                        audio_prompt_path=audio_prompt_path,
+                        temperature=temperature,
+                        min_p=min_p,
+                        top_p=top_p,
+                        top_k=int(top_k),
+                        repetition_penalty=repetition_penalty,
+                        norm_loudness=norm_loudness,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight
+                    )
+
+                    # Remove batch dimension and convert to numpy for concatenation
+                    chunk_audio = chunk_wav.squeeze(0).cpu().numpy()
+                    audio_chunks.append(chunk_audio)
+
+            # Concatenate all audio chunks
+            concatenated_audio = np.concatenate(audio_chunks, axis=0)
+
+            # Convert back to tensor with batch dimension
+            final_wav = torch.from_numpy(concatenated_audio).unsqueeze(0)
+
+            log.info(f"Concatenated {len(chunks)} chunks into final audio ({final_wav.shape[1]} samples)")
+
+            return final_wav
