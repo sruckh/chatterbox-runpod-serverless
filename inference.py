@@ -205,9 +205,6 @@ class ChatterBoxInference:
             return [text]  # Fallback to original text
 
         log.info(f"Split text into {len(chunks)} chunks (max {max_chars} chars each)")
-        for i, chunk in enumerate(chunks, 1):
-            log.info(f"Chunk {i}/{len(chunks)} ({len(chunk)} chars): {chunk[:80]}...")
-
         return chunks
 
     def load_model(self):
@@ -370,12 +367,11 @@ class ChatterBoxInference:
                     audio_chunks.append(chunk_audio)
 
             # Concatenate all audio chunks
-            log.info(f"Audio chunk shapes before concatenation: {[chunk.shape for chunk in audio_chunks]}")
             concatenated_audio = np.concatenate(audio_chunks, axis=0)
 
             # Convert back to tensor with batch dimension
             final_wav = torch.from_numpy(concatenated_audio).unsqueeze(0)
 
-            log.info(f"Concatenated {len(audio_chunks)} audio chunks into final audio ({final_wav.shape[1]} samples)")
+            log.info(f"Concatenated {len(audio_chunks)} chunks → {final_wav.shape[1]} samples ({final_wav.shape[1]/self.model.sr:.1f}s)")
 
             return final_wav
