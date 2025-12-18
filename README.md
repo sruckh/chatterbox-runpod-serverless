@@ -15,6 +15,9 @@ A production-ready serverless implementation of [Resemble AI's ChatterBox](https
 - 🎚️ **Advanced Controls** - Fine-tune with temperature, top-p, top-k, repetition penalty, and CFG weight (CFG weight ignored by Turbo if > 0.0)
 - 🔊 **Loudness Normalization** - Automatic loudness normalization (-27 LUFS)
 - 📦 **S3 Integration** - Automatic upload to S3-compatible storage with presigned URLs
+- 🤖 **OpenAI TTS Compatible** - Drop-in replacement for OpenAI Text-to-Speech API
+- 🔄 **Smart Text Chunking** - Automatically handles long text (splits at sentence boundaries, max 300 chars per chunk)
+- 🎯 **Dual API Support** - Use either OpenAI-compatible format or advanced custom API
 
 ## Quick Start
 
@@ -72,7 +75,50 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 }
 ```
 
+### OpenAI TTS API (Compatible Format)
+
+The service also supports OpenAI Text-to-Speech API format for easy integration with existing tools:
+
+```bash
+curl -X POST https://your-endpoint.runpod.ai/v2/run \
+  -H "Authorization: Bearer YOUR_RUNPOD_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "model": "tts-1",
+      "voice": "alloy",
+      "input": "Hello! This is a test using OpenAI format."
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "audio": "base64_encoded_mp3_data",
+  "_content_type": "audio/mpeg"
+}
+```
+
+**Supported Voices:** `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
+
+**Voice Mapping:** Configure voice-to-audio-file mappings in `/runpod-volume/chatterbox/voices.json`:
+
+```json
+{
+  "alloy": {
+    "audio_file": "voice_alloy.wav",
+    "description": "Neutral, balanced voice",
+    "enabled": true
+  }
+}
+```
+
+See [OPENAI-TTS.md](OPENAI-TTS.md) for complete implementation details.
+
 ## API Reference
+
+### Custom API (Advanced)
 
 ### Input Parameters
 
