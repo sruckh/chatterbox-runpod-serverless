@@ -172,3 +172,9 @@ IMPLEMENTATION.md
 # Reference implementations
 echo-tts/
 app.py
+
+# Cloudflare Worker (bridge)
+bridge/wrangler.toml
+bridge/.wrangler/
+bridge/.dev.vars
+bridge/node_modules/

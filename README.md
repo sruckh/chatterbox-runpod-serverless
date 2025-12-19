@@ -15,9 +15,8 @@ A production-ready serverless implementation of [Resemble AI's ChatterBox](https
 - 🎚️ **Advanced Controls** - Fine-tune with temperature, top-p, top-k, repetition penalty, and CFG weight (CFG weight ignored by Turbo if > 0.0)
 - 🔊 **Loudness Normalization** - Automatic loudness normalization (-27 LUFS)
 - 📦 **S3 Integration** - Automatic upload to S3-compatible storage with presigned URLs
-- 🤖 **OpenAI TTS Compatible** - Drop-in replacement for OpenAI Text-to-Speech API
 - 🔄 **Smart Text Chunking** - Automatically handles long text (splits at sentence boundaries, max 300 chars per chunk)
-- 🎯 **Dual API Support** - Use either OpenAI-compatible format or advanced custom API
+- 🤖 **OpenAI TTS Compatible** - Optional Cloudflare Worker bridge for drop-in OpenAI API compatibility
 
 ## Quick Start
 
@@ -75,46 +74,48 @@ curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
 }
 ```
 
-### OpenAI TTS API (Compatible Format)
+### OpenAI TTS API Compatibility
 
-The service also supports OpenAI Text-to-Speech API format for easy integration with existing tools:
+For OpenAI Text-to-Speech API compatibility, deploy the optional Cloudflare Worker bridge (see `bridge/` directory):
 
 ```bash
-curl -X POST https://your-endpoint.runpod.ai/v2/run \
-  -H "Authorization: Bearer YOUR_RUNPOD_API_KEY" \
+# Using OpenAI SDK (Python)
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="dummy",
+    base_url="https://your-worker.workers.dev"
+)
+
+response = client.audio.speech.create(
+    model="tts-1",
+    voice="Dorota",
+    input="Hello! This is a test."
+)
+
+response.stream_to_file("output.mp3")
+```
+
+Or with curl:
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "input": {
-      "model": "tts-1",
-      "voice": "alloy",
-      "input": "Hello! This is a test using OpenAI format."
-    }
-  }'
+    "model": "tts-1",
+    "voice": "Dorota",
+    "input": "Hello! This is a test."
+  }' \
+  --output output.mp3
 ```
 
-**Response:**
-```json
-{
-  "audio": "base64_encoded_mp3_data",
-  "_content_type": "audio/mpeg"
-}
-```
+**Features:**
+- ✅ True OpenAI TTS API compatibility (works with OpenAI SDKs)
+- ✅ Dynamic voice mappings via Cloudflare R2
+- ✅ No changes to RunPod deployment required
+- ✅ Supports both S3 URLs and base64 responses
 
-**Supported Voices:** `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
-
-**Voice Mapping:** Configure voice-to-audio-file mappings in `/runpod-volume/chatterbox/voices.json`:
-
-```json
-{
-  "alloy": {
-    "audio_file": "voice_alloy.wav",
-    "description": "Neutral, balanced voice",
-    "enabled": true
-  }
-}
-```
-
-See [OPENAI-TTS.md](OPENAI-TTS.md) for complete implementation details.
+See [bridge/README.md](bridge/README.md) for setup and configuration.
 
 ## API Reference
 
@@ -147,6 +148,8 @@ See [OPENAI-TTS.md](OPENAI-TTS.md) for complete implementation details.
 - **Location**: Upload to `/runpod-volume/chatterbox/audio_prompts/` on the Runpod volume
 
 ## Architecture
+
+### Core RunPod Deployment
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -183,6 +186,40 @@ See [OPENAI-TTS.md](OPENAI-TTS.md) for complete implementation details.
 │  • Output audio files                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Optional: OpenAI TTS Compatibility (Cloudflare Worker Bridge)
+
+```
+┌──────────────────┐
+│  OpenAI Client   │  (SDK, curl, etc.)
+│  (Any tool)      │
+└────────┬─────────┘
+         │ POST /v1/audio/speech
+         │ {"model": "tts-1", "voice": "Dorota", "input": "..."}
+         ▼
+┌─────────────────────────────────────────┐
+│     Cloudflare Worker (Edge)            │
+│  ┌───────────────────────────────────┐  │
+│  │ • Translate OpenAI → Custom API   │  │
+│  │ • Load voice mappings from R2     │  │
+│  │ • Call RunPod serverless          │  │
+│  │ • Fetch audio (S3 or base64)      │  │
+│  │ • Return raw audio/mpeg           │  │
+│  └───────────────────────────────────┘  │
+└────────┬────────────────────────────────┘
+         │
+         │ Custom API request
+         ▼
+┌─────────────────────────────────────────┐
+│        RunPod Serverless                │
+│  (ChatterBox TTS generation)            │
+└────────┬────────────────────────────────┘
+         │
+         ▼
+    Audio Output
+```
+
+See [bridge/README.md](bridge/README.md) for bridge setup.
 
 ## Performance
 
@@ -222,6 +259,11 @@ chatterbox-runpod-serverless/
 ├── bootstrap.sh            # Runtime setup script
 ├── Dockerfile              # Container definition
 ├── requirements.txt        # Python dependencies
+├── bridge/                 # Optional Cloudflare Worker for OpenAI TTS compatibility
+│   ├── worker.js           # Cloudflare Worker code
+│   ├── wrangler.toml.example  # Configuration template
+│   ├── voices.json         # Voice mapping template
+│   └── README.md           # Bridge documentation
 ├── .dockerignore          # Docker build exclusions
 └── .gitignore             # Git ignore rules
 ```

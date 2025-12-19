@@ -1,0 +1,17 @@
+name = "chatterbox-openai-bridge"
+main = "worker.js"
+compatibility_date = "2024-12-18"
+
+# R2 bucket binding for voice mappings
+[[r2_buckets]]
+binding = "CHATTERBOX_BUCKET"
+bucket_name = "chatterbox"
+
+# Environment variables
+[vars]
+# Set this to your RunPod serverless endpoint URL
+# Example: https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync
+RUNPOD_URL = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync"
+
+# Secrets (set with: wrangler secret put RUNPOD_API_KEY)
+# RUNPOD_API_KEY = "your-runpod-api-key" (set via CLI, not here)
