@@ -22,13 +22,23 @@ RUNPOD_URL = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync"
 
 **Note:** `wrangler.toml` is in `.gitignore` to keep your endpoint URL private.
 
-### 2. Set RunPod API Key (Secret)
+### 2. Set Secrets
+
+Set the required RunPod API key and optional authentication token:
 
 ```bash
 cd bridge
+
+# Required: RunPod API key
 wrangler secret put RUNPOD_API_KEY
 # Paste your RunPod API key when prompted
+
+# Optional but recommended: Worker authentication token
+wrangler secret put AUTH_TOKEN
+# Paste a secure token (e.g., generate with: openssl rand -hex 32)
 ```
+
+**Note:** If `AUTH_TOKEN` is not set, the worker will be publicly accessible to anyone with the URL.
 
 ### 3. Deploy
 
@@ -89,7 +99,7 @@ Voice mappings are stored in the R2 bucket `chatterbox` in a file called `voices
 from openai import OpenAI
 
 client = OpenAI(
-    api_key="dummy",  # Not validated by worker
+    api_key="your-worker-auth-token",  # Your AUTH_TOKEN secret
     base_url="https://chatterbox-openai-bridge.YOUR_SUBDOMAIN.workers.dev"
 )
 
@@ -102,10 +112,13 @@ response = client.audio.speech.create(
 response.stream_to_file("output.mp3")
 ```
 
+**Note:** If you didn't set an `AUTH_TOKEN` secret, you can use any value for `api_key` (e.g., `"dummy"`).
+
 ### curl
 
 ```bash
 curl -X POST https://chatterbox-openai-bridge.YOUR_SUBDOMAIN.workers.dev/v1/audio/speech \
+  -H "Authorization: Bearer your-worker-auth-token" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "tts-1",
@@ -116,12 +129,15 @@ curl -X POST https://chatterbox-openai-bridge.YOUR_SUBDOMAIN.workers.dev/v1/audi
   --output output.mp3
 ```
 
+**Note:** Omit the `Authorization` header if you didn't set an `AUTH_TOKEN` secret.
+
 ### Node.js / JavaScript
 
 ```javascript
 const response = await fetch('https://chatterbox-openai-bridge.YOUR_SUBDOMAIN.workers.dev/v1/audio/speech', {
   method: 'POST',
   headers: {
+    'Authorization': 'Bearer your-worker-auth-token',
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
@@ -135,6 +151,8 @@ const response = await fetch('https://chatterbox-openai-bridge.YOUR_SUBDOMAIN.wo
 const audioBuffer = await response.arrayBuffer();
 // Save or play audioBuffer
 ```
+
+**Note:** Omit the `Authorization` header if you didn't set an `AUTH_TOKEN` secret.
 
 ## API Reference
 

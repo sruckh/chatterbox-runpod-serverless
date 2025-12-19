@@ -13,5 +13,6 @@ bucket_name = "chatterbox"
 # Example: https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync
 RUNPOD_URL = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync"
 
-# Secrets (set with: wrangler secret put RUNPOD_API_KEY)
-# RUNPOD_API_KEY = "your-runpod-api-key" (set via CLI, not here)
+# Secrets (set via CLI, not in this file)
+# wrangler secret put RUNPOD_API_KEY     (required - your RunPod API key)
+# wrangler secret put AUTH_TOKEN         (optional but recommended - worker authentication)

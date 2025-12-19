@@ -27,6 +27,54 @@ export default {
       return errorResponse('Not found. Use POST /v1/audio/speech', 404);
     }
 
+    // Authenticate request (if AUTH_TOKEN is configured)
+    if (env.AUTH_TOKEN) {
+      const authHeader = request.headers.get('Authorization');
+
+      if (!authHeader) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: 'Missing Authorization header',
+              type: 'authentication_error',
+              param: null,
+              code: 'missing_authorization'
+            }
+          }),
+          {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+
+      // Extract token from "Bearer TOKEN" format
+      const token = authHeader.replace(/^Bearer\s+/i, '');
+
+      if (token !== env.AUTH_TOKEN) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: 'Invalid authentication token',
+              type: 'authentication_error',
+              param: null,
+              code: 'invalid_token'
+            }
+          }),
+          {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+    }
+
     try {
       // Parse OpenAI TTS request
       const openaiRequest = await request.json();

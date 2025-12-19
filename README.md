@@ -49,7 +49,8 @@ A production-ready serverless implementation of [Resemble AI's ChatterBox](https
 ### Usage Example
 
 ```bash
-curl -X POST https://your-endpoint.runpod.ai/v2/runpod \
+curl -X POST https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync \
+  -H "Authorization: Bearer YOUR_RUNPOD_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
