@@ -16,3 +16,10 @@ RUNPOD_URL = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync"
 # Secrets (set via CLI, not in this file)
 # wrangler secret put RUNPOD_API_KEY     (required - your RunPod API key)
 # wrangler secret put AUTH_TOKEN         (optional but recommended - worker authentication)
+
+# Observability (logging)
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true

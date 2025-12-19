@@ -155,19 +155,25 @@ export default {
 
       const runpodResult = await runpodResponse.json();
 
+      // Extract output from RunPod response
+      // /runsync endpoint wraps response in: { status: 'COMPLETED', output: {...} }
+      const output = runpodResult.output || runpodResult;
+
       // Check for errors in response
-      if (runpodResult.error) {
-        console.error('RunPod returned error:', runpodResult.error);
-        return openaiError(runpodResult.error, 'server_error', null);
+      if (output.error || runpodResult.error) {
+        const error = output.error || runpodResult.error;
+        console.error('RunPod returned error:', error);
+        return openaiError(error, 'server_error', null);
       }
 
       // Extract audio data (S3 URL or base64)
       let audioBytes;
+      let contentType = 'audio/mpeg'; // Default for OpenAI compatibility
 
-      if (runpodResult.audio_url) {
+      if (output.audio_url) {
         // Fetch audio from S3 URL
-        console.log('Fetching audio from S3:', runpodResult.audio_url);
-        const s3Response = await fetch(runpodResult.audio_url);
+        console.log('Fetching audio from S3:', output.audio_url);
+        const s3Response = await fetch(output.audio_url);
 
         if (!s3Response.ok) {
           console.error('Failed to fetch from S3:', s3Response.status);
@@ -176,9 +182,14 @@ export default {
 
         audioBytes = await s3Response.arrayBuffer();
 
-      } else if (runpodResult.audio_base64 || runpodResult.audio) {
+        // Use actual Content-Type from S3 (OGG format)
+        // Note: This breaks strict OpenAI compatibility but ensures audio plays correctly
+        contentType = s3Response.headers.get('Content-Type') || 'application/octet-stream';
+        console.log('S3 Content-Type:', contentType);
+
+      } else if (output.audio_base64 || output.audio) {
         // Decode base64 to binary
-        const audioBase64 = runpodResult.audio_base64 || runpodResult.audio;
+        const audioBase64 = output.audio_base64 || output.audio;
         audioBytes = base64ToArrayBuffer(audioBase64);
 
       } else {
@@ -190,7 +201,7 @@ export default {
       return new Response(audioBytes, {
         status: 200,
         headers: {
-          'Content-Type': 'audio/mpeg',
+          'Content-Type': contentType,
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'no-cache'
         }

@@ -7,6 +7,8 @@ import uuid
 import soundfile as sf
 import boto3
 from botocore.exceptions import NoCredentialsError
+import time
+from pathlib import Path
 
 from inference import ChatterBoxInference
 import config
@@ -17,6 +19,39 @@ log = logging.getLogger(__name__)
 
 # Initialize model loader
 inference_engine = ChatterBoxInference()
+
+def cleanup_old_files(directory, days=2):
+    """Delete files older than specified days from directory
+
+    Args:
+        directory: Path to directory to clean
+        days: Age threshold in days (default: 2)
+    """
+    try:
+        output_dir = Path(directory)
+        if not output_dir.exists():
+            log.debug(f"Output directory {directory} does not exist, skipping cleanup")
+            return
+
+        current_time = time.time()
+        cutoff_time = current_time - (days * 24 * 60 * 60)  # Convert days to seconds
+
+        deleted_count = 0
+        for file_path in output_dir.glob('*'):
+            if file_path.is_file():
+                file_age = file_path.stat().st_mtime
+                if file_age < cutoff_time:
+                    try:
+                        file_path.unlink()
+                        deleted_count += 1
+                        log.debug(f"Deleted old file: {file_path.name}")
+                    except Exception as e:
+                        log.warning(f"Failed to delete {file_path.name}: {e}")
+
+        if deleted_count > 0:
+            log.info(f"Cleaned up {deleted_count} files older than {days} days from {directory}")
+    except Exception as e:
+        log.error(f"Cleanup failed: {e}")
 
 def upload_to_s3(audio_buffer, filename):
     """Upload generated audio to S3 and return URL"""
@@ -79,6 +114,9 @@ def handler(job):
         "audio_url": str (if S3 configured) OR "audio_base64": str (fallback)
     }
     """
+    # Clean up old output files (older than 2 days)
+    cleanup_old_files(config.OUTPUT_DIR, days=2)
+
     job_input = job.get("input", {})
 
     # Extract parameters
