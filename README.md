@@ -16,6 +16,7 @@ A production-ready serverless implementation of [Resemble AI's ChatterBox](https
 - 🔊 **Loudness Normalization** - Automatic loudness normalization (-27 LUFS)
 - 📦 **S3 Integration** - Automatic upload to S3-compatible storage with presigned URLs
 - 🔄 **Smart Text Chunking** - Automatically handles long text (splits at sentence boundaries, max 300 chars per chunk)
+- 🧹 **Automatic Cleanup** - Removes output files older than 2 days to prevent disk space issues
 - 🤖 **OpenAI TTS Compatible** - Optional Cloudflare Worker bridge for drop-in OpenAI API compatibility
 
 ## Quick Start
@@ -84,7 +85,7 @@ For OpenAI Text-to-Speech API compatibility, deploy the optional Cloudflare Work
 from openai import OpenAI
 
 client = OpenAI(
-    api_key="dummy",
+    api_key="your-worker-auth-token",  # Your AUTH_TOKEN secret
     base_url="https://your-worker.workers.dev"
 )
 
@@ -94,27 +95,30 @@ response = client.audio.speech.create(
     input="Hello! This is a test."
 )
 
-response.stream_to_file("output.mp3")
+response.stream_to_file("output.ogg")  # OGG format
 ```
 
 Or with curl:
 
 ```bash
 curl -X POST https://your-worker.workers.dev/v1/audio/speech \
+  -H "Authorization: Bearer your-worker-auth-token" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "tts-1",
     "voice": "Dorota",
     "input": "Hello! This is a test."
   }' \
-  --output output.mp3
+  --output output.ogg
 ```
 
 **Features:**
 - ✅ True OpenAI TTS API compatibility (works with OpenAI SDKs)
+- ✅ Optional Bearer token authentication for security
 - ✅ Dynamic voice mappings via Cloudflare R2
 - ✅ No changes to RunPod deployment required
 - ✅ Supports both S3 URLs and base64 responses
+- ⚠️ **Note:** Returns audio in OGG format (ChatterBox native output), not MP3
 
 See [bridge/README.md](bridge/README.md) for setup and configuration.
 
