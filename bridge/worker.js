@@ -104,7 +104,7 @@ async function handleOpenAITTS(request, env) {
     const openaiRequest = await request.json();
 
     // Validate required fields
-    const { model, input, voice, response_format = 'mp3', speed = 1.0 } = openaiRequest;
+    const { model, input, voice, response_format = 'mp3', speed = 1.0, stream = false } = openaiRequest;
 
     if (!model) {
       return openaiError('Missing required parameter: model', 'invalid_request_error', 'model');
@@ -131,14 +131,26 @@ async function handleOpenAITTS(request, env) {
     }
 
     // Warn about unsupported features (but don't error)
-    if (response_format !== 'mp3') {
-      console.warn(`Unsupported response_format: ${response_format}. Only 'mp3' is supported. Defaulting to mp3.`);
+    if (response_format !== 'mp3' && response_format !== 'pcm') {
+      console.warn(`Unsupported response_format: ${response_format}. Only 'mp3' or 'pcm' supported. Defaulting to mp3.`);
     }
     if (speed !== 1.0) {
       console.warn(`Speed parameter (${speed}) is not supported and will be ignored.`);
     }
 
-    console.log(`OpenAI TTS request: voice=${voice} (${audioFile}), text_len=${input.length}, format=${response_format}`);
+    console.log(`OpenAI TTS request: voice=${voice} (${audioFile}), text_len=${input.length}, format=${response_format}, stream=${stream}`);
+
+    // If streaming is requested, delegate to streaming handler
+    if (stream) {
+        return handleOpenAIStreaming(env, {
+            text: input,
+            voice: voice,
+            audio_prompt: audioFile,
+            output_format: response_format === 'pcm' ? 'pcm_16' : 'mp3'
+        });
+    }
+
+    // --- BATCH MODE (Existing Logic) ---
 
     // Translate to RunPod custom format
     const runpodRequest = {
@@ -255,6 +267,133 @@ async function handleOpenAITTS(request, env) {
     console.error('Worker error:', error);
     return openaiError(error.message, 'server_error', null);
   }
+}
+
+/**
+ * Handle Streaming OpenAI Response
+ * Submits async job, polls for chunks, and pipes them to response body
+ */
+async function handleOpenAIStreaming(env, params) {
+    const { text, audio_prompt, output_format } = params;
+    const requestId = crypto.randomUUID();
+
+    // Prepare RunPod URLs (Async /run)
+    let runUrl = env.RUNPOD_URL;
+    let streamBaseUrl;
+    
+    if (runUrl.endsWith('/runsync')) {
+        runUrl = runUrl.slice(0, -8) + '/run';
+        streamBaseUrl = runUrl.slice(0, -4) + '/stream';
+    } else if (runUrl.endsWith('/run')) {
+        streamBaseUrl = runUrl.slice(0, -4) + '/stream';
+    } else {
+        // Assume base
+        runUrl = runUrl.replace(/\/$/, '') + '/run';
+        streamBaseUrl = runUrl.replace(/\/$/, '') + '/stream';
+    }
+
+    // Submit Job
+    console.log(`[Tier 2][CF][${requestId}] Submitting streaming job to ${runUrl}...`);
+    
+    const runResponse = await fetch(runUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${env.RUNPOD_API_KEY}`
+        },
+        body: JSON.stringify({
+            input: {
+                text,
+                audio_prompt,
+                stream: true,
+                output_format,
+                temperature: 0.8,
+                top_p: 0.95
+            }
+        })
+    });
+
+    if (!runResponse.ok) {
+        throw new Error(`RunPod submit failed: ${runResponse.statusText}`);
+    }
+
+    const jobData = await runResponse.json();
+    const jobId = jobData.id;
+    const streamUrl = `${streamBaseUrl}/${jobId}`;
+    console.log(`[Tier 2][CF][${requestId}] Job ${jobId} submitted. Polling ${streamUrl}...`);
+
+    // Create ReadableStream to pipe chunks to client
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+
+    // Start background poller
+    (async () => {
+        try {
+            let lastStreamPosition = 0;
+            let isFinished = false;
+            let pollInterval = 500; // Start fast
+            const startTime = Date.now();
+            const timeout = 300000;
+
+            while (!isFinished && (Date.now() - startTime) < timeout) {
+                const resp = await fetch(streamUrl, {
+                    headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}` }
+                });
+                
+                if (!resp.ok) throw new Error(`Stream poll failed: ${resp.status}`);
+                
+                const data = await resp.json();
+                const streamData = data.stream || [];
+                
+                // Process new items
+                if (streamData.length > lastStreamPosition) {
+                    const newItems = streamData.slice(lastStreamPosition);
+                    
+                    for (const item of newItems) {
+                        if (item.status === 'streaming') {
+                            // Decode base64 audio chunk and write to stream
+                            if (item.audio_chunk) {
+                                const chunkBytes = base64ToArrayBuffer(item.audio_chunk);
+                                await writer.write(chunkBytes);
+                            }
+                        } else if (item.status === 'complete') {
+                            isFinished = true;
+                        } else if (item.error) {
+                            console.error(`[Tier 2][CF][${requestId}] Stream error item:`, item.error);
+                            // We can't really signal error in the middle of a stream easily 
+                            // other than closing, but let's just log it.
+                        }
+                    }
+                    lastStreamPosition = streamData.length;
+                    pollInterval = 500; // Reset backoff on data
+                } else {
+                    // Exponential backoff if no new data
+                    pollInterval = Math.min(pollInterval * 1.5, 5000);
+                }
+
+                if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+                    isFinished = true;
+                }
+
+                if (!isFinished) await new Promise(r => setTimeout(r, pollInterval));
+            }
+        } catch (e) {
+            console.error(`[Tier 2][CF][${requestId}] Streaming error:`, e);
+            // Close stream to end response
+        } finally {
+            await writer.close();
+        }
+    })();
+
+    // Return response immediately with the stream
+    return new Response(readable, {
+        headers: {
+            'Content-Type': output_format === 'mp3' ? 'audio/mpeg' : 'audio/pcm',
+            'Transfer-Encoding': 'chunked',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    });
 }
 
 /**
@@ -671,9 +810,9 @@ function handleCORS() {
 function base64ToArrayBuffer(base64) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length;
- i++) {
+  for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
 }
+

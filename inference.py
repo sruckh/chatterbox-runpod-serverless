@@ -485,6 +485,31 @@ class ChatterBoxInference:
     # STREAMING GENERATORS
     # =============================================================================
 
+    def encode_mp3(self, audio_array: np.ndarray, sample_rate: int) -> bytes:
+        """Encode PCM numpy array to MP3 bytes using ffmpeg"""
+        import subprocess
+        
+        # Ensure int16
+        if audio_array.dtype != np.int16:
+            audio_int16 = (audio_array * 32767).astype(np.int16)
+        else:
+            audio_int16 = audio_array
+            
+        raw_bytes = audio_int16.tobytes()
+        
+        try:
+            process = subprocess.Popen(
+                ['ffmpeg', '-y', '-f', 's16le', '-ar', str(sample_rate), '-ac', '1', '-i', 'pipe:0', '-f', 'mp3', '-b:a', '192k', 'pipe:1'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL
+            )
+            mp3_bytes, _ = process.communicate(input=raw_bytes)
+            return mp3_bytes
+        except Exception as e:
+            log.error(f"FFmpeg encoding failed: {e}")
+            return b""
+
     def generate_audio_stream(
         self,
         text: str,
@@ -559,6 +584,7 @@ class ChatterBoxInference:
         temperature=0.8,
         top_k=1000,
         norm_loudness=True,
+        output_format="pcm_16",
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Generate streaming audio with LinaCodec compression then decode.
@@ -567,13 +593,16 @@ class ChatterBoxInference:
         - Generate audio chunk
         - Encode to LinaCodec tokens (compression)
         - Decode back to audio (quality upgrade to 48kHz)
-        - Yield decoded audio chunk as base64 PCM-16
+        - Yield decoded audio chunk as base64 PCM-16 or MP3
 
         This gives us the quality benefits of LinaCodec (48kHz output) while
         outputting standard PCM that doesn't require browser decoding.
 
         Yields dictionaries with streaming chunk data.
         """
+        # Determine target format
+        is_mp3 = output_format == "mp3"
+        
         if not LINACODEC_AVAILABLE:
             # Fallback: stream raw audio without LinaCodec
             log.warning("[Streaming] LinaCodec not available, streaming raw audio at 24kHz")
@@ -582,21 +611,31 @@ class ChatterBoxInference:
                 text, repetition_penalty, min_p, top_p, audio_prompt,
                 exaggeration, cfg_weight, temperature, top_k, norm_loudness
             ), 1):
-                # Convert to numpy and then to bytes
+                # Convert to numpy
                 audio_array = chunk_wav.squeeze(0).cpu().numpy()
-                audio_b64 = base64.b64encode(audio_array.tobytes()).decode('utf-8')
+                
+                # Encode if MP3 requested
+                if is_mp3:
+                    # 24kHz fallback
+                    audio_bytes = self.encode_mp3(audio_array, 24000)
+                    fmt = "mp3"
+                else:
+                    audio_bytes = audio_array.tobytes()
+                    fmt = "pcm_24"
+                
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
 
                 yield {
                     'status': 'streaming',
                     'chunk': chunk_num,
-                    'format': 'pcm_24',
+                    'format': fmt,
                     'audio_chunk': audio_b64,
                     'sample_rate': 24000
                 }
 
             yield {
                 'status': 'complete',
-                'format': 'pcm_24',
+                'format': fmt,
                 'message': 'All chunks streamed (no LinaCodec)'
             }
             return
@@ -623,14 +662,23 @@ class ChatterBoxInference:
 
             # Convert float32 to int16 PCM
             audio_int16 = (audio_array * 32767).astype(np.int16)
-            audio_b64 = base64.b64encode(audio_int16.tobytes()).decode('utf-8')
+            
+            if is_mp3:
+                # Encode to MP3 @ 48kHz
+                audio_bytes = self.encode_mp3(audio_int16, 48000)
+                fmt = "mp3"
+            else:
+                audio_bytes = audio_int16.tobytes()
+                fmt = "pcm_16"
+                
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
 
             log.debug(f"[Streaming] Chunk {chunk_num}: {len(audio_array)} samples (process: {process_time:.3f}s)")
 
             yield {
                 'status': 'streaming',
                 'chunk': chunk_num,
-                'format': 'pcm_16',  # 16-bit PCM at 48kHz
+                'format': fmt,
                 'audio_chunk': audio_b64,
                 'sample_rate': 48000,
                 'process_time_ms': process_time * 1000
@@ -641,7 +689,7 @@ class ChatterBoxInference:
 
         yield {
             'status': 'complete',
-            'format': 'pcm_16',
+            'format': fmt,
             'message': 'All chunks streamed',
             'total_chunks': chunk_num,
             'elapsed_time_seconds': elapsed

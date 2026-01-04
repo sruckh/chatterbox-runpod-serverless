@@ -334,9 +334,9 @@ def handler_stream(job_input: dict, output_format: str):
 
     try:
         # Route based on output format
-        if output_format == 'pcm_16':
+        if output_format in ['pcm_16', 'mp3']:
             # Stream decoded audio chunks (for Cloudflare Workers)
-            log.info("[Handler] Streaming decoded audio (pcm_16)")
+            log.info(f"[Handler] Streaming decoded audio ({output_format})")
             yield from inference_engine.generate_audio_stream_decoded(
                 text=text,
                 repetition_penalty=repetition_penalty,
@@ -348,6 +348,7 @@ def handler_stream(job_input: dict, output_format: str):
                 temperature=temperature,
                 top_k=top_k,
                 norm_loudness=norm_loudness,
+                output_format=output_format
             )
         else:
             # Unknown format
