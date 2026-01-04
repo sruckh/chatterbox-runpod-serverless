@@ -144,7 +144,9 @@ def handler(job):
         return
 
     # For batch mode, use original logic (yield result for consistency)
-    yield handler_batch(job)
+    result = handler_batch(job)
+    log.info(f"[Handler] Batch mode result: {result}")
+    yield result
 
 
 def _extract_and_validate_params(job_input: dict) -> tuple:
