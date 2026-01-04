@@ -358,4 +358,7 @@ def handler_stream(job_input: dict, output_format: str):
         yield {"error": str(e)}
 
 if __name__ == "__main__":
-    runpod.serverless.start({"handler": handler})
+    runpod.serverless.start({
+        "handler": handler,
+        "return_aggregate_stream": True
+    })

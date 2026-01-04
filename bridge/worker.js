@@ -157,8 +157,21 @@ async function handleOpenAITTS(request, env) {
       }
     };
 
-    // Call RunPod serverless
-    const runpodResponse = await fetch(env.RUNPOD_URL, {
+    // Use /runsync for direct synchronous execution (better for OpenAI compatibility & TTFB)
+    let syncUrl = env.RUNPOD_URL;
+    if (!syncUrl.endsWith('/runsync')) {
+      // Try to construct it if it's just the base URL or /run
+      if (syncUrl.endsWith('/run')) {
+        syncUrl = syncUrl.slice(0, -4) + '/runsync';
+      } else {
+        syncUrl = syncUrl.replace(/\/$/, '') + '/runsync';
+      }
+    }
+
+    console.log(`Using RunPod /runsync endpoint: ${syncUrl}`);
+
+    // Submit job to /runsync
+    const runResponse = await fetch(syncUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -167,25 +180,37 @@ async function handleOpenAITTS(request, env) {
       body: JSON.stringify(runpodRequest)
     });
 
-    if (!runpodResponse.ok) {
-      const errorText = await runpodResponse.text();
-      console.error('RunPod error:', errorText);
+    if (!runResponse.ok) {
+      const errorText = await runResponse.text();
+      console.error('RunPod /runsync error:', errorText);
       return openaiError(
-        `RunPod service error: ${runpodResponse.status} ${runpodResponse.statusText}`,
+        `RunPod service error: ${runResponse.status} ${runResponse.statusText}`,
         'server_error',
         null
       );
     }
 
-    const runpodResult = await runpodResponse.json();
+    const jobData = await runResponse.json();
+    
+    // In /runsync, the result is in 'output' if COMPLETED
+    // If it took too long, it might be in 'status' IN_PROGRESS/QUEUED
+    if (jobData.status !== 'COMPLETED') {
+      console.warn(`Job did not complete synchronously: status=${jobData.status}. Job ID: ${jobData.id}`);
+      
+      // Fallback to polling if sync execution didn't finish in time
+      return handleAsyncPollingFallback(jobData.id, env);
+    }
 
-    // Extract output from RunPod response
-    // /runsync endpoint wraps response in: { status: 'COMPLETED', output: {...} }
-    const output = runpodResult.output || runpodResult;
+    let output = jobData.output;
+    
+    // If the handler is a generator, RunPod returns an array of yields
+    if (Array.isArray(output) && output.length === 1) {
+      output = output[0];
+    }
 
     // Check for errors in response
-    if (output.error || runpodResult.error) {
-      const error = output.error || runpodResult.error;
+    if (!output || output.error) {
+      const error = output?.error || 'Unknown error in RunPod output';
       console.error('RunPod returned error:', error);
       return openaiError(error, 'server_error', null);
     }
@@ -205,23 +230,18 @@ async function handleOpenAITTS(request, env) {
       }
 
       audioBytes = await s3Response.arrayBuffer();
-
-      // Use actual Content-Type from S3 (OGG format)
-      // Note: This breaks strict OpenAI compatibility but ensures audio plays correctly
-      contentType = s3Response.headers.get('Content-Type') || 'application/octet-stream';
+      contentType = s3Response.headers.get('Content-Type') || 'audio/ogg';
       console.log('S3 Content-Type:', contentType);
 
     } else if (output.audio_base64 || output.audio) {
-      // Decode base64 to binary
       const audioBase64 = output.audio_base64 || output.audio;
       audioBytes = base64ToArrayBuffer(audioBase64);
 
     } else {
-      console.error('No audio data in RunPod response:', runpodResult);
+      console.error('No audio data in RunPod response:', output);
       return openaiError('No audio data returned from RunPod', 'server_error', null);
     }
 
-    // Return raw audio bytes (OpenAI format)
     return new Response(audioBytes, {
       status: 200,
       headers: {
@@ -235,6 +255,71 @@ async function handleOpenAITTS(request, env) {
     console.error('Worker error:', error);
     return openaiError(error.message, 'server_error', null);
   }
+}
+
+/**
+ * Fallback to polling for completion if /runsync times out
+ */
+async function handleAsyncPollingFallback(jobId, env) {
+  console.log(`Starting polling fallback for Job ID: ${jobId}`);
+  
+  const statusBaseUrl = env.RUNPOD_URL.split('/').slice(0, -1).join('/') + '/status';
+  const statusUrl = `${statusBaseUrl}/${jobId}`;
+  const maxWait = 300000; // 5 minutes
+  let pollInterval = 2000; // Start at 2 seconds
+  const startTime = Date.now();
+  let output = null;
+
+  while (Date.now() - startTime < maxWait) {
+    const statusResponse = await fetch(statusUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${env.RUNPOD_API_KEY}`
+      }
+    });
+
+    if (!statusResponse.ok) {
+      const errorText = await statusResponse.text();
+      return openaiError(`Status check failed: ${statusResponse.status}`, 'server_error', null);
+    }
+
+    const statusData = await statusResponse.json();
+    if (statusData.status === 'COMPLETED') {
+      output = statusData.output;
+      if (Array.isArray(output) && output.length === 1) {
+        output = output[0];
+      }
+      break;
+    } else if (statusData.status === 'FAILED') {
+      return openaiError(statusData.error || 'Job failed', 'server_error', null);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    pollInterval = Math.min(pollInterval * 1.5, 10000);
+  }
+
+  if (!output) {
+    return openaiError('Job timed out', 'server_error', null);
+  }
+
+  // Same extraction logic as in handleOpenAITTS
+  let audioBytes;
+  if (output.audio_url) {
+    const s3Response = await fetch(output.audio_url);
+    audioBytes = await s3Response.arrayBuffer();
+  } else if (output.audio_base64 || output.audio) {
+    audioBytes = base64ToArrayBuffer(output.audio_base64 || output.audio);
+  } else {
+    return openaiError('No audio data returned', 'server_error', null);
+  }
+
+  return new Response(audioBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'audio/mpeg',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
 }
 
 /**
@@ -586,7 +671,8 @@ function handleCORS() {
 function base64ToArrayBuffer(base64) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
+  for (let i = 0; i < binaryString.length;
+ i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
