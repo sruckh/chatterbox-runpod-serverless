@@ -2,3 +2,5 @@ runpod>=1.6.0
 boto3>=1.26.0
 toml
 soundfile>=0.12.1
+# LinaCodec for efficient audio streaming (auto-downloads model to HF cache)
+git+https://github.com/ysharma3501/LinaCodec.git

@@ -5,13 +5,118 @@ import numpy as np
 import logging
 import soundfile as sf
 from pathlib import Path
+from typing import Generator, Dict, Any, Tuple
+import tempfile
+import base64
+import time
 
 # Add ChatterBox to path (it's cloned at runtime in bootstrap.sh)
 sys.path.insert(0, '/runpod-volume/chatterbox/chatterbox')
 
 import config
 
-log = logging.getLogger(__name__)
+# =============================================================================
+# LINACODEC IMPORTS (for streaming support)
+# =============================================================================
+try:
+    from linacodec.codec import LinaCodec
+    LINACODEC_AVAILABLE = True
+    log = logging.getLogger(__name__)
+    log.info("LinaCodec is available for streaming")
+except ImportError:
+    LINACODEC_AVAILABLE = False
+    log = logging.getLogger(__name__)
+    log.warning("LinaCodec not available. Streaming in pcm_16 format will fall back to raw audio.")
+
+# =============================================================================
+# LINACODEC GLOBAL CACHE
+# =============================================================================
+_LINA_CODEC_MODEL = None
+
+
+def load_linacodec():
+    """
+    Load LinaCodec encoder/decoder (cached globally)
+
+    Model is auto-downloaded from HuggingFace on first use
+    and cached to network volume.
+    """
+    global _LINA_CODEC_MODEL
+
+    if _LINA_CODEC_MODEL is not None:
+        log.info("[ChatterBox] Using cached LinaCodec model")
+        return _LINA_CODEC_MODEL
+
+    if not LINACODEC_AVAILABLE:
+        raise RuntimeError("LinaCodec is not installed")
+
+    log.info("[ChatterBox] Loading LinaCodec model from network volume...")
+
+    # Ensure cache is on network volume (use chatterbox subdirectory)
+    os.environ['HF_HOME'] = config.HF_HOME
+    os.environ['HF_HUB_CACHE'] = config.HF_HUB_CACHE
+
+    # LinaCodec auto-downloads from HuggingFace to cache
+    _LINA_CODEC_MODEL = LinaCodec()
+
+    log.info("[ChatterBox] LinaCodec loaded and cached to network volume!")
+    return _LINA_CODEC_MODEL
+
+
+def encode_to_linacodec(audio: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Encode audio to LinaCodec tokens.
+
+    Args:
+        audio: Audio tensor (float32, 24kHz from ChatterBox)
+
+    Returns:
+        Tuple of (tokens, global_embedding)
+
+    Note: LinaCodec automatically upsamples to 48kHz during encoding.
+    """
+    if not LINACODEC_AVAILABLE:
+        raise RuntimeError("LinaCodec is not available")
+
+    lina = load_linacodec()
+
+    # Create temporary file for LinaCodec (it requires a file path)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+        tmp_wav_path = tmp_wav.name
+
+    try:
+        # Prepare audio tensor
+        if isinstance(audio, np.ndarray):
+            audio = torch.from_numpy(audio)
+
+        # Squeeze all singleton dimensions (e.g. (1, 1, samples) -> (samples,))
+        audio = audio.detach().cpu().squeeze()
+
+        # Ensure 2D (channels, time) for torchaudio/soundfile
+        if audio.dim() == 1:
+            audio = audio.unsqueeze(0)
+        elif audio.dim() == 0:
+            audio = audio.unsqueeze(0).unsqueeze(0)
+        elif audio.dim() > 2:
+            # If still > 2D, take the first slice of extra dimensions
+            while audio.dim() > 2:
+                audio = audio[0]
+            if audio.dim() == 1:
+                audio = audio.unsqueeze(0)
+
+        # ChatterBox outputs at 24kHz
+        sf.write(tmp_wav_path, audio.T, 24000, format='WAV')
+
+        # Encode from file path
+        # LinaCodec handles loading and resampling to 48kHz
+        tokens, embedding = lina.encode(tmp_wav_path)
+
+        return tokens, embedding
+
+    finally:
+        # Clean up temporary file
+        if os.path.exists(tmp_wav_path):
+            os.unlink(tmp_wav_path)
 
 # Monkeypatch flag
 _MONKEYPATCH_APPLIED = False
@@ -375,3 +480,169 @@ class ChatterBoxInference:
             log.info(f"Concatenated {len(audio_chunks)} chunks → {final_wav.shape[1]} samples ({final_wav.shape[1]/self.model.sr:.1f}s)")
 
             return final_wav
+
+    # =============================================================================
+    # STREAMING GENERATORS
+    # =============================================================================
+
+    def generate_audio_stream(
+        self,
+        text: str,
+        repetition_penalty=1.2,
+        min_p=0.00,
+        top_p=0.95,
+        audio_prompt=None,
+        exaggeration=0.0,
+        cfg_weight=0.0,
+        temperature=0.8,
+        top_k=1000,
+        norm_loudness=True,
+    ) -> Generator[torch.Tensor, None, None]:
+        """
+        Generate audio in chunks using the TTS model.
+
+        Yields audio chunks as they're generated (without LinaCodec encoding).
+
+        Args:
+            text: Text to synthesize
+            ... (same parameters as generate())
+
+        Yields:
+            Audio tensors (with batch dimension)
+        """
+        if self.model is None:
+            self.load_model()
+
+        # Process audio prompt if provided
+        audio_prompt_path = self.process_audio_prompt(audio_prompt)
+
+        # ChatterBox requires either audio_prompt_path or pre-prepared conditionals
+        if not audio_prompt_path and self.model.conds is None:
+            raise ValueError(
+                "Either 'audio_prompt' must be provided for voice cloning, "
+                "or model must have pre-prepared conditionals"
+            )
+
+        # Smart chunk text
+        chunks = self._smart_chunk_text(text, self.max_chunk_chars)
+
+        log.info(f"[Streaming] Split text into {len(chunks)} chunks")
+
+        for i, chunk_text in enumerate(chunks, 1):
+            log.info(f"[Streaming] Generating chunk {i}/{len(chunks)} ({len(chunk_text)} chars)...")
+
+            with torch.no_grad():
+                chunk_wav = self.model.generate(
+                    chunk_text,
+                    audio_prompt_path=audio_prompt_path,
+                    temperature=temperature,
+                    min_p=min_p,
+                    top_p=top_p,
+                    top_k=int(top_k),
+                    repetition_penalty=repetition_penalty,
+                    norm_loudness=norm_loudness,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight
+                )
+
+            yield chunk_wav
+
+    def generate_audio_stream_decoded(
+        self,
+        text: str,
+        repetition_penalty=1.2,
+        min_p=0.00,
+        top_p=0.95,
+        audio_prompt=None,
+        exaggeration=0.0,
+        cfg_weight=0.0,
+        temperature=0.8,
+        top_k=1000,
+        norm_loudness=True,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Generate streaming audio with LinaCodec compression then decode.
+
+        This is the compatibility mode for Cloudflare Workers:
+        - Generate audio chunk
+        - Encode to LinaCodec tokens (compression)
+        - Decode back to audio (quality upgrade to 48kHz)
+        - Yield decoded audio chunk as base64 PCM-16
+
+        This gives us the quality benefits of LinaCodec (48kHz output) while
+        outputting standard PCM that doesn't require browser decoding.
+
+        Yields dictionaries with streaming chunk data.
+        """
+        if not LINACODEC_AVAILABLE:
+            # Fallback: stream raw audio without LinaCodec
+            log.warning("[Streaming] LinaCodec not available, streaming raw audio at 24kHz")
+
+            for chunk_num, chunk_wav in enumerate(self.generate_audio_stream(
+                text, repetition_penalty, min_p, top_p, audio_prompt,
+                exaggeration, cfg_weight, temperature, top_k, norm_loudness
+            ), 1):
+                # Convert to numpy and then to bytes
+                audio_array = chunk_wav.squeeze(0).cpu().numpy()
+                audio_b64 = base64.b64encode(audio_array.tobytes()).decode('utf-8')
+
+                yield {
+                    'status': 'streaming',
+                    'chunk': chunk_num,
+                    'format': 'pcm_24',
+                    'audio_chunk': audio_b64,
+                    'sample_rate': 24000
+                }
+
+            yield {
+                'status': 'complete',
+                'format': 'pcm_24',
+                'message': 'All chunks streamed (no LinaCodec)'
+            }
+            return
+
+        lina = load_linacodec()
+        start_time = time.time()
+
+        for chunk_num, chunk_wav in enumerate(self.generate_audio_stream(
+            text, repetition_penalty, min_p, top_p, audio_prompt,
+            exaggeration, cfg_weight, temperature, top_k, norm_loudness
+        ), 1):
+            chunk_start = time.time()
+
+            # Encode to LinaCodec tokens
+            tokens, embedding = encode_to_linacodec(chunk_wav)
+
+            # Decode back to audio (now at 48kHz!)
+            decoded_audio = lina.decode(tokens, embedding)
+
+            process_time = time.time() - chunk_start
+
+            # Convert to base64 for transmission
+            audio_array = decoded_audio.cpu().numpy() if hasattr(decoded_audio, 'cpu') else decoded_audio
+
+            # Convert float32 to int16 PCM
+            audio_int16 = (audio_array * 32767).astype(np.int16)
+            audio_b64 = base64.b64encode(audio_int16.tobytes()).decode('utf-8')
+
+            log.debug(f"[Streaming] Chunk {chunk_num}: {len(audio_array)} samples (process: {process_time:.3f}s)")
+
+            yield {
+                'status': 'streaming',
+                'chunk': chunk_num,
+                'format': 'pcm_16',  # 16-bit PCM at 48kHz
+                'audio_chunk': audio_b64,
+                'sample_rate': 48000,
+                'process_time_ms': process_time * 1000
+            }
+
+        elapsed = time.time() - start_time
+        log.info(f"[Streaming] Complete: {chunk_num} chunks, {elapsed:.2f}s")
+
+        yield {
+            'status': 'complete',
+            'format': 'pcm_16',
+            'message': 'All chunks streamed',
+            'total_chunks': chunk_num,
+            'elapsed_time_seconds': elapsed
+        }

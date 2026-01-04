@@ -85,6 +85,10 @@ EOF
     # We install them in Dockerfile but ensure here too just in case
     pip install runpod>=1.6.0 boto3>=1.26.0
 
+    # Install LinaCodec for streaming support
+    echo "Installing LinaCodec..."
+    pip install git+https://github.com/ysharma3501/LinaCodec.git
+
     # Create first run flag
     touch "$FIRST_RUN_FLAG"
     echo "=== First Run Setup Complete ==="
@@ -93,6 +97,20 @@ else
     echo "=== Existing Installation Found - Skipping Setup ==="
     # Activate Virtual Environment
     source "$VENV_PATH/bin/activate"
+
+    # Runtime check: Ensure LinaCodec is available
+    # This handles cases where persistent volumes might override the image's python environment
+    python << 'EOF'
+import sys
+try:
+    from linacodec.codec import LinaCodec
+    print("LinaCodec is available")
+except ImportError:
+    print("LinaCodec not found, installing...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/ysharma3501/LinaCodec.git"])
+    print("LinaCodec installed successfully")
+EOF
 fi
 
 # Start the handler
