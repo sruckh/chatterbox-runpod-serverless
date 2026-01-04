@@ -178,3 +178,9 @@ bridge/wrangler.toml
 bridge/.wrangler/
 bridge/.dev.vars
 bridge/node_modules/
+
+# Design Documents
+IMPLEMENTATION-ORDER.md
+LINACODEC-BE.md
+LINACODEC-FE.md
+LINACODEC-MW.md
