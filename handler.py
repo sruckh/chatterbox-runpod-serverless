@@ -143,10 +143,10 @@ def handler(job):
         yield from handler_stream(job_input, output_format)
         return
 
-    # For batch mode, use original logic (yield result for consistency)
+    # For batch mode, return result (not yield - /runsync expects return value)
     result = handler_batch(job)
     log.info(f"[Handler] Batch mode result: {result}")
-    yield result
+    return result
 
 
 def _extract_and_validate_params(job_input: dict) -> tuple:
