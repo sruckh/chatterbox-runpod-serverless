@@ -660,6 +660,14 @@ class ChatterBoxInference:
             # Convert to base64 for transmission
             audio_array = decoded_audio.cpu().numpy() if hasattr(decoded_audio, 'cpu') else decoded_audio
 
+            # DIAGNOSTIC: Log audio properties
+            log.info(f"[Streaming] Chunk {chunk_num} decoded: shape={audio_array.shape}, dtype={audio_array.dtype}, min={audio_array.min():.4f}, max={audio_array.max():.4f}")
+
+            # Ensure 1D array (squeeze if needed)
+            if audio_array.ndim > 1:
+                audio_array = audio_array.squeeze()
+                log.warning(f"[Streaming] Squeezed audio from {decoded_audio.shape} to {audio_array.shape}")
+
             # Convert float32 to int16 PCM
             audio_int16 = (audio_array * 32767).astype(np.int16)
             
