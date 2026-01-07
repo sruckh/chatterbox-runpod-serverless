@@ -353,19 +353,22 @@ async function handleOpenAIStreaming(env, params) {
                 // Process new items
                 if (streamData.length > lastStreamPosition) {
                     const newItems = streamData.slice(lastStreamPosition);
-                    
+
                     for (const item of newItems) {
-                        if (item.status === 'streaming') {
+                        // RunPod wraps yields in "output" field when return_aggregate_stream=False
+                        const payload = item.output || item;
+
+                        if (payload.status === 'streaming') {
                             // Decode base64 audio chunk and write to stream
-                            if (item.audio_chunk) {
-                                const chunkBytes = base64ToArrayBuffer(item.audio_chunk);
+                            if (payload.audio_chunk) {
+                                const chunkBytes = base64ToArrayBuffer(payload.audio_chunk);
                                 await writer.write(chunkBytes);
                             }
-                        } else if (item.status === 'complete') {
+                        } else if (payload.status === 'complete') {
                             isFinished = true;
-                        } else if (item.error) {
-                            console.error(`[Tier 2][CF][${requestId}] Stream error item:`, item.error);
-                            // We can't really signal error in the middle of a stream easily 
+                        } else if (payload.error) {
+                            console.error(`[Tier 2][CF][${requestId}] Stream error item:`, payload.error);
+                            // We can't really signal error in the middle of a stream easily
                             // other than closing, but let's just log it.
                         }
                     }
@@ -611,19 +614,22 @@ async function handleStreamingTTS(request, env) {
               const newItems = streamData.slice(lastStreamPosition);
 
               for (const item of newItems) {
+                // RunPod wraps yields in "output" field when return_aggregate_stream=False
+                const payload = item.output || item;
+
                 totalChunks++;
 
-                if (item.status === 'streaming') {
+                if (payload.status === 'streaming') {
                   // Extract audio data and send as SSE
-                  const audioBase64 = item.audio_chunk;
-                  const sampleRate = item.sample_rate || 48000;
-                  const chunkNum = item.chunk;
+                  const audioBase64 = payload.audio_chunk;
+                  const sampleRate = payload.sample_rate || 48000;
+                  const chunkNum = payload.chunk;
 
                   // Send SSE event with audio metadata
                   const sseData = {
                     chunk: chunkNum,
                     sample_rate: sampleRate,
-                    format: item.format
+                    format: payload.format
                   };
 
                   controller.enqueue(encoder.encode(`event: audio\n`));
@@ -635,10 +641,10 @@ async function handleStreamingTTS(request, env) {
 
                   console.log(`[Tier 2][CF][${requestId}] Sent chunk ${chunkNum} @ ${sampleRate}Hz`);
 
-                } else if (item.status === 'complete') {
+                } else if (payload.status === 'complete') {
                   isFinished = true;
-                  const totalChunks = item.total_chunks;
-                  const elapsed = item.elapsed_time_seconds || 0;
+                  const totalChunks = payload.total_chunks;
+                  const elapsed = payload.elapsed_time_seconds || 0;
 
                   console.log(`[Tier 2][CF][${requestId}] Complete: ${totalChunks} chunks, ${elapsed.toFixed(2)}s`);
 
@@ -652,8 +658,8 @@ async function handleStreamingTTS(request, env) {
                   controller.enqueue(encoder.encode(`event: complete\n`));
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeEvent)}\n\n`));
 
-                } else if (item.error) {
-                  throw new Error(item.error);
+                } else if (payload.error) {
+                  throw new Error(payload.error);
                 }
               }
 
