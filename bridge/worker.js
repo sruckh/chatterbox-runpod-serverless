@@ -203,20 +203,25 @@ async function handleOpenAITTS(request, env) {
     }
 
     const jobData = await runResponse.json();
-    
+
     // In /runsync, the result is in 'output' if COMPLETED
     // If it took too long, it might be in 'status' IN_PROGRESS/QUEUED
     if (jobData.status !== 'COMPLETED') {
       console.warn(`Job did not complete synchronously: status=${jobData.status}. Job ID: ${jobData.id}`);
-      
+
       // Fallback to polling if sync execution didn't finish in time
       return handleAsyncPollingFallback(jobData.id, env);
     }
 
+    // With return_aggregate_stream=False, generator yields are in 'stream' array
+    // With return_aggregate_stream=True, they're in 'output' array
     let output = jobData.output;
-    
-    // If the handler is a generator, RunPod returns an array of yields
-    if (Array.isArray(output) && output.length === 1) {
+
+    if (!output && jobData.stream && jobData.stream.length > 0) {
+      // Extract from stream array (return_aggregate_stream=False)
+      output = jobData.stream[0];
+    } else if (Array.isArray(output) && output.length === 1) {
+      // Extract from output array (return_aggregate_stream=True)
       output = output[0];
     }
 
@@ -425,7 +430,11 @@ async function handleAsyncPollingFallback(jobId, env) {
     const statusData = await statusResponse.json();
     if (statusData.status === 'COMPLETED') {
       output = statusData.output;
-      if (Array.isArray(output) && output.length === 1) {
+
+      // Handle both return_aggregate_stream modes
+      if (!output && statusData.stream && statusData.stream.length > 0) {
+        output = statusData.stream[0];
+      } else if (Array.isArray(output) && output.length === 1) {
         output = output[0];
       }
       break;
