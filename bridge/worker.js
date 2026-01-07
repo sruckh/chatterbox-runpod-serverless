@@ -219,7 +219,8 @@ async function handleOpenAITTS(request, env) {
 
     if (!output && jobData.stream && jobData.stream.length > 0) {
       // Extract from stream array (return_aggregate_stream=False)
-      output = jobData.stream[0];
+      // RunPod wraps each yield in {"output": {...}}
+      output = jobData.stream[0].output || jobData.stream[0];
     } else if (Array.isArray(output) && output.length === 1) {
       // Extract from output array (return_aggregate_stream=True)
       output = output[0];
@@ -436,7 +437,8 @@ async function handleAsyncPollingFallback(jobId, env) {
 
       // Handle both return_aggregate_stream modes
       if (!output && statusData.stream && statusData.stream.length > 0) {
-        output = statusData.stream[0];
+        // RunPod wraps each yield in {"output": {...}}
+        output = statusData.stream[0].output || statusData.stream[0];
       } else if (Array.isArray(output) && output.length === 1) {
         output = output[0];
       }
