@@ -220,10 +220,13 @@ async function handleOpenAITTS(request, env) {
     if (!output && jobData.stream && jobData.stream.length > 0) {
       // Extract from stream array (return_aggregate_stream=False)
       // RunPod wraps each yield in {"output": {...}}
-      output = jobData.stream[0].output || jobData.stream[0];
-    } else if (Array.isArray(output) && output.length === 1) {
+      // Use the last element (final result)
+      const lastStream = jobData.stream[jobData.stream.length - 1];
+      output = lastStream.output || lastStream;
+    } else if (Array.isArray(output) && output.length > 0) {
       // Extract from output array (return_aggregate_stream=True)
-      output = output[0];
+      // For multi-chunk generation, use the last element (contains final audio_url)
+      output = output[output.length - 1];
     }
 
     // Check for errors in response
@@ -400,7 +403,8 @@ async function handleOpenAIStreaming(env, params) {
             'Content-Type': output_format === 'mp3' ? 'audio/mpeg' : 'audio/pcm',
             'Transfer-Encoding': 'chunked',
             'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*'
         }
     });
 }

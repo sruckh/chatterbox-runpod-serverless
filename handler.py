@@ -361,5 +361,5 @@ def handler_stream(job_input: dict, output_format: str):
 if __name__ == "__main__":
     runpod.serverless.start({
         "handler": handler,
-        "return_aggregate_stream": False  # Enable real-time streaming
+        "return_aggregate_stream": True  # Required for /runsync to capture generator yields
     })
