@@ -334,6 +334,9 @@ async function handleOpenAIStreaming(env, params) {
     (async () => {
         try {
             let lastStreamPosition = 0;
+            let lastChunkProcessed = 0;
+            let expectedChunks = null;
+            let completionSeenAt = null;
             let isFinished = false;
             let pollInterval = 500; // Start fast
             const startTime = Date.now();
@@ -349,36 +352,60 @@ async function handleOpenAIStreaming(env, params) {
                 if (!resp.ok) throw new Error(`Stream poll failed: ${resp.status}`);
 
                 const data = await resp.json();
-                const streamData = data.stream || [];
+                const streamData = Array.isArray(data.stream) ? data.stream : [];
+                const outputData = Array.isArray(data.output) ? data.output : [];
+                const combinedStream = streamData.length ? streamData : outputData;
 
-                console.log(`[Tier 2][CF][${requestId}] Poll: status=${data.status}, stream items=${streamData.length}, new items=${streamData.length - lastStreamPosition}`);
+                console.log(`[Tier 2][CF][${requestId}] Poll: status=${data.status}, stream items=${combinedStream.length}, new items=${combinedStream.length - lastStreamPosition}`);
 
-                // Process new items
-                if (streamData.length > lastStreamPosition) {
-                    const newItems = streamData.slice(lastStreamPosition);
-
-                    for (const item of newItems) {
-                        // With return_aggregate_stream=True, items are the raw yields
-                        // With return_aggregate_stream=False, yields are wrapped in "output" field
-                        const payload = item.output || item;
+                const processItems = async (items) => {
+                    let processedAny = false;
+                    for (const item of items) {
+                        const payload = item?.output || item;
+                        if (!payload) continue;
 
                         if (payload.status === 'streaming') {
-                            // Decode base64 audio chunk and write to stream
+                            const chunkNum = typeof payload.chunk === 'number' ? payload.chunk : null;
+                            if (chunkNum !== null && chunkNum <= lastChunkProcessed) {
+                                continue;
+                            }
                             if (payload.audio_chunk) {
                                 const chunkBytes = base64ToArrayBuffer(payload.audio_chunk);
                                 await writer.write(chunkBytes);
                                 totalBytesWritten += chunkBytes.byteLength;
                                 audioChunksWritten++;
-                                console.log(`[Tier 2][CF][${requestId}] Wrote audio chunk ${payload.chunk}: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
+                                processedAny = true;
+                                if (chunkNum !== null) {
+                                    lastChunkProcessed = Math.max(lastChunkProcessed, chunkNum);
+                                    console.log(`[Tier 2][CF][${requestId}] Wrote audio chunk ${chunkNum}: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
+                                } else {
+                                    lastChunkProcessed++;
+                                    console.log(`[Tier 2][CF][${requestId}] Wrote audio chunk: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
+                                }
                             }
                         } else if (payload.status === 'complete') {
+                            if (typeof payload.total_chunks === 'number') {
+                                expectedChunks = payload.total_chunks;
+                            }
+                            processedAny = true;
                             console.log(`[Tier 2][CF][${requestId}] Received completion signal (total written: ${totalBytesWritten} bytes, ${audioChunksWritten} audio chunks)`);
                         } else if (payload.error) {
                             console.error(`[Tier 2][CF][${requestId}] Stream error item:`, payload.error);
                         }
                     }
+                    return processedAny;
+                };
 
-                    lastStreamPosition = streamData.length;
+                let processed = false;
+                if (combinedStream.length > lastStreamPosition) {
+                    const newItems = combinedStream.slice(lastStreamPosition);
+                    processed = await processItems(newItems);
+                    lastStreamPosition = combinedStream.length;
+                } else if (combinedStream.length > 0) {
+                    processed = await processItems([combinedStream[combinedStream.length - 1]]);
+                }
+
+                if (processed) {
                     pollInterval = 500; // Reset backoff on data
                 } else {
                     // Exponential backoff if no new data
@@ -399,33 +426,36 @@ async function handleOpenAIStreaming(env, params) {
 
                     if (finalResp.ok) {
                         const finalData = await finalResp.json();
-                        const finalStreamData = finalData.stream || [];
+                        const finalStreamData = Array.isArray(finalData.stream) ? finalData.stream : [];
+                        const finalOutputData = Array.isArray(finalData.output) ? finalData.output : [];
+                        const finalCombined = finalStreamData.length ? finalStreamData : finalOutputData;
 
-                        console.log(`[Tier 2][CF][${requestId}] Final poll: stream items=${finalStreamData.length}, new items=${finalStreamData.length - lastStreamPosition}`);
+                        console.log(`[Tier 2][CF][${requestId}] Final poll: stream items=${finalCombined.length}, new items=${finalCombined.length - lastStreamPosition}`);
 
                         // Process any new items from final poll
-                        if (finalStreamData.length > lastStreamPosition) {
-                            const finalNewItems = finalStreamData.slice(lastStreamPosition);
-
-                            for (const item of finalNewItems) {
-                                const payload = item.output || item;
-
-                                if (payload.status === 'streaming') {
-                                    if (payload.audio_chunk) {
-                                        const chunkBytes = base64ToArrayBuffer(payload.audio_chunk);
-                                        await writer.write(chunkBytes);
-                                        totalBytesWritten += chunkBytes.byteLength;
-                                        audioChunksWritten++;
-                                        console.log(`[Tier 2][CF][${requestId}] Final poll wrote chunk ${payload.chunk}: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
-                                    }
-                                } else if (payload.status === 'complete') {
-                                    console.log(`[Tier 2][CF][${requestId}] Final poll found completion signal (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
-                                }
-                            }
+                        if (finalCombined.length > lastStreamPosition) {
+                            const finalNewItems = finalCombined.slice(lastStreamPosition);
+                            await processItems(finalNewItems);
+                            lastStreamPosition = finalCombined.length;
+                        } else if (finalCombined.length > 0) {
+                            await processItems([finalCombined[finalCombined.length - 1]]);
                         }
                     }
 
-                    isFinished = true;
+                    if (data.status === 'FAILED') {
+                        isFinished = true;
+                    } else if (expectedChunks && lastChunkProcessed < expectedChunks) {
+                        if (!completionSeenAt) completionSeenAt = Date.now();
+                        const gracePeriodMs = 5000;
+                        if (Date.now() - completionSeenAt >= gracePeriodMs) {
+                            console.warn(`[Tier 2][CF][${requestId}] Completed but missing chunks (expected ${expectedChunks}, got ${lastChunkProcessed}). Ending after grace period.`);
+                            isFinished = true;
+                        } else {
+                            isFinished = false;
+                        }
+                    } else {
+                        isFinished = true;
+                    }
                 }
 
                 if (!isFinished) await new Promise(r => setTimeout(r, pollInterval));
@@ -634,7 +664,10 @@ async function handleStreamingTTS(request, env) {
           console.log(`[Tier 2][CF][${requestId}] Polling stream: ${streamUrl}`);
 
           let lastStreamPosition = 0;
+          let lastChunkProcessed = 0;
           let totalChunks = 0;
+          let expectedChunks = null;
+          let completionSeenAt = null;
           let isFinished = false;
           const timeout = 300000; // 5 minutes
           const pollStartTime = Date.now();
@@ -654,23 +687,24 @@ async function handleStreamingTTS(request, env) {
 
             const data = await streamResponse.json();
             const status = data.status;
-            const streamData = data.stream || [];
+            const streamData = Array.isArray(data.stream) ? data.stream : [];
+            const outputData = Array.isArray(data.output) ? data.output : [];
+            const combinedStream = streamData.length ? streamData : outputData;
 
             // Process new stream items since last poll
-            if (streamData.length > lastStreamPosition) {
-              const newItems = streamData.slice(lastStreamPosition);
-
-              for (const item of newItems) {
-                // RunPod wraps yields in "output" field when return_aggregate_stream=False
-                const payload = item.output || item;
-
-                totalChunks++;
+            const processItems = (items) => {
+              for (const item of items) {
+                const payload = item?.output || item;
+                if (!payload) continue;
 
                 if (payload.status === 'streaming') {
-                  // Extract audio data and send as SSE
+                  const chunkNum = typeof payload.chunk === 'number' ? payload.chunk : null;
+                  if (chunkNum !== null && chunkNum <= lastChunkProcessed) {
+                    continue;
+                  }
+
                   const audioBase64 = payload.audio_chunk;
                   const sampleRate = payload.sample_rate || 48000;
-                  const chunkNum = payload.chunk;
 
                   // Send SSE event with audio metadata
                   const sseData = {
@@ -686,41 +720,62 @@ async function handleStreamingTTS(request, env) {
                   controller.enqueue(encoder.encode(`event: audio_data\n`));
                   controller.enqueue(encoder.encode(`data: ${audioBase64}\n\n`));
 
-                  console.log(`[Tier 2][CF][${requestId}] Sent chunk ${chunkNum} @ ${sampleRate}Hz`);
-
+                  totalChunks++;
+                  if (chunkNum !== null) {
+                    lastChunkProcessed = Math.max(lastChunkProcessed, chunkNum);
+                    console.log(`[Tier 2][CF][${requestId}] Sent chunk ${chunkNum} @ ${sampleRate}Hz`);
+                  } else {
+                    lastChunkProcessed++;
+                    console.log(`[Tier 2][CF][${requestId}] Sent chunk @ ${sampleRate}Hz`);
+                  }
                 } else if (payload.status === 'complete') {
-                  isFinished = true;
-                  const totalChunks = payload.total_chunks;
+                  if (typeof payload.total_chunks === 'number') {
+                    expectedChunks = payload.total_chunks;
+                  }
                   const elapsed = payload.elapsed_time_seconds || 0;
 
-                  console.log(`[Tier 2][CF][${requestId}] Complete: ${totalChunks} chunks, ${elapsed.toFixed(2)}s`);
+                  console.log(`[Tier 2][CF][${requestId}] Complete: ${expectedChunks ?? totalChunks} chunks, ${elapsed.toFixed(2)}s`);
 
                   // Send completion event
                   const completeEvent = {
                     status: 'complete',
-                    total_chunks: totalChunks,
+                    total_chunks: expectedChunks ?? totalChunks,
                     elapsed_time_seconds: elapsed
                   };
 
                   controller.enqueue(encoder.encode(`event: complete\n`));
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeEvent)}\n\n`));
-
                 } else if (payload.error) {
                   throw new Error(payload.error);
                 }
               }
+            };
 
-              lastStreamPosition = streamData.length;
+            if (combinedStream.length > lastStreamPosition) {
+              const newItems = combinedStream.slice(lastStreamPosition);
+              processItems(newItems);
+              lastStreamPosition = combinedStream.length;
+            } else if (combinedStream.length > 0) {
+              processItems([combinedStream[combinedStream.length - 1]]);
             }
 
             // Check if job is finished
             if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELED') {
-              isFinished = true;
-
               if (status === 'FAILED') {
                 throw new Error(data.error || 'RunPod job failed');
               } else if (status === 'CANCELED') {
                 throw new Error('RunPod job was canceled');
+              } else if (expectedChunks && lastChunkProcessed < expectedChunks) {
+                if (!completionSeenAt) completionSeenAt = Date.now();
+                const gracePeriodMs = 5000;
+                if (Date.now() - completionSeenAt >= gracePeriodMs) {
+                  console.warn(`[Tier 2][CF][${requestId}] Completed but missing chunks (expected ${expectedChunks}, got ${lastChunkProcessed}). Ending after grace period.`);
+                  isFinished = true;
+                } else {
+                  isFinished = false;
+                }
+              } else {
+                isFinished = true;
               }
             }
 
@@ -877,4 +932,3 @@ function base64ToArrayBuffer(base64) {
   }
   return bytes.buffer;
 }
-
