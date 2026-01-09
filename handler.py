@@ -143,10 +143,10 @@ def handler(job):
         yield from handler_stream(job_input, output_format)
         return
 
-    # For batch mode, return result directly (NOT a generator)
+    # For batch mode, yield result (handler must be generator for RunPod compatibility)
     result = handler_batch(job)
     log.info(f"[Handler] Batch mode result: {result}")
-    return result
+    yield result
 
 
 def _extract_and_validate_params(job_input: dict) -> tuple:
@@ -361,5 +361,5 @@ def handler_stream(job_input: dict, output_format: str):
 if __name__ == "__main__":
     runpod.serverless.start({
         "handler": handler,
-        "return_aggregate_stream": False  # False for real-time streaming via /stream endpoint
+        "return_aggregate_stream": True  # True required for /runsync to capture generator yields
     })

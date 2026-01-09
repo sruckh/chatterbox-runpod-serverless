@@ -213,21 +213,16 @@ async function handleOpenAITTS(request, env) {
       return handleAsyncPollingFallback(jobData.id, env);
     }
 
-    // With return_aggregate_stream=False, generator yields are in 'stream' array
-    // With return_aggregate_stream=True, they're in 'output' array
+    // With return_aggregate_stream=True, generator yields are captured in 'output' array
     let output = jobData.output;
 
-    if (!output && jobData.stream && jobData.stream.length > 0) {
-      // Extract from stream array (return_aggregate_stream=False)
-      // RunPod wraps each yield in {"output": {...}}
-      // Use the last element (final result)
-      const lastStream = jobData.stream[jobData.stream.length - 1];
-      output = lastStream.output || lastStream;
-    } else if (Array.isArray(output) && output.length > 0) {
-      // Extract from output array (return_aggregate_stream=True)
-      // For multi-chunk generation, use the last element (contains final audio_url)
+    // Extract from output array - use the last element (contains final result for batch mode)
+    if (Array.isArray(output) && output.length > 0) {
+      console.log('[Batch] Output is array with ' + output.length + ' elements, extracting last element');
       output = output[output.length - 1];
     }
+
+    console.log('[Batch] /runsync response: status=' + jobData.status + ', output type=' + typeof output);
 
     // Check for errors in response
     if (!output || output.error) {
@@ -343,23 +338,28 @@ async function handleOpenAIStreaming(env, params) {
             let pollInterval = 500; // Start fast
             const startTime = Date.now();
             const timeout = 300000;
+            let totalBytesWritten = 0;
+            let audioChunksWritten = 0;
 
             while (!isFinished && (Date.now() - startTime) < timeout) {
                 const resp = await fetch(streamUrl, {
                     headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}` }
                 });
-                
+
                 if (!resp.ok) throw new Error(`Stream poll failed: ${resp.status}`);
-                
+
                 const data = await resp.json();
                 const streamData = data.stream || [];
-                
+
+                console.log(`[Tier 2][CF][${requestId}] Poll: status=${data.status}, stream items=${streamData.length}, new items=${streamData.length - lastStreamPosition}`);
+
                 // Process new items
                 if (streamData.length > lastStreamPosition) {
                     const newItems = streamData.slice(lastStreamPosition);
 
                     for (const item of newItems) {
-                        // RunPod wraps yields in "output" field when return_aggregate_stream=False
+                        // With return_aggregate_stream=True, items are the raw yields
+                        // With return_aggregate_stream=False, yields are wrapped in "output" field
                         const payload = item.output || item;
 
                         if (payload.status === 'streaming') {
@@ -367,15 +367,17 @@ async function handleOpenAIStreaming(env, params) {
                             if (payload.audio_chunk) {
                                 const chunkBytes = base64ToArrayBuffer(payload.audio_chunk);
                                 await writer.write(chunkBytes);
+                                totalBytesWritten += chunkBytes.byteLength;
+                                audioChunksWritten++;
+                                console.log(`[Tier 2][CF][${requestId}] Wrote audio chunk ${payload.chunk}: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
                             }
                         } else if (payload.status === 'complete') {
-                            isFinished = true;
+                            console.log(`[Tier 2][CF][${requestId}] Received completion signal (total written: ${totalBytesWritten} bytes, ${audioChunksWritten} audio chunks)`);
                         } else if (payload.error) {
                             console.error(`[Tier 2][CF][${requestId}] Stream error item:`, payload.error);
-                            // We can't really signal error in the middle of a stream easily
-                            // other than closing, but let's just log it.
                         }
                     }
+
                     lastStreamPosition = streamData.length;
                     pollInterval = 500; // Reset backoff on data
                 } else {
@@ -383,17 +385,59 @@ async function handleOpenAIStreaming(env, params) {
                     pollInterval = Math.min(pollInterval * 1.5, 5000);
                 }
 
+                // When job is COMPLETED, do ONE MORE POLL to catch any final stream items
                 if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+                    console.log(`[Tier 2][CF][${requestId}] Job ${data.status}, doing final poll for remaining items...`);
+
+                    // Wait a moment for RunPod to finalize stream array
+                    await new Promise(r => setTimeout(r, 250));
+
+                    // Poll one more time to get final items
+                    const finalResp = await fetch(streamUrl, {
+                        headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}` }
+                    });
+
+                    if (finalResp.ok) {
+                        const finalData = await finalResp.json();
+                        const finalStreamData = finalData.stream || [];
+
+                        console.log(`[Tier 2][CF][${requestId}] Final poll: stream items=${finalStreamData.length}, new items=${finalStreamData.length - lastStreamPosition}`);
+
+                        // Process any new items from final poll
+                        if (finalStreamData.length > lastStreamPosition) {
+                            const finalNewItems = finalStreamData.slice(lastStreamPosition);
+
+                            for (const item of finalNewItems) {
+                                const payload = item.output || item;
+
+                                if (payload.status === 'streaming') {
+                                    if (payload.audio_chunk) {
+                                        const chunkBytes = base64ToArrayBuffer(payload.audio_chunk);
+                                        await writer.write(chunkBytes);
+                                        totalBytesWritten += chunkBytes.byteLength;
+                                        audioChunksWritten++;
+                                        console.log(`[Tier 2][CF][${requestId}] Final poll wrote chunk ${payload.chunk}: ${chunkBytes.byteLength} bytes (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
+                                    }
+                                } else if (payload.status === 'complete') {
+                                    console.log(`[Tier 2][CF][${requestId}] Final poll found completion signal (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks)`);
+                                }
+                            }
+                        }
+                    }
+
                     isFinished = true;
                 }
 
                 if (!isFinished) await new Promise(r => setTimeout(r, pollInterval));
             }
+
+            console.log(`[Tier 2][CF][${requestId}] Streaming complete (total: ${totalBytesWritten} bytes, ${audioChunksWritten} chunks), closing stream...`);
         } catch (e) {
             console.error(`[Tier 2][CF][${requestId}] Streaming error:`, e);
             // Close stream to end response
         } finally {
             await writer.close();
+            console.log(`[Tier 2][CF][${requestId}] Stream closed`);
         }
     })();
 
@@ -439,12 +483,9 @@ async function handleAsyncPollingFallback(jobId, env) {
     if (statusData.status === 'COMPLETED') {
       output = statusData.output;
 
-      // Handle both return_aggregate_stream modes
-      if (!output && statusData.stream && statusData.stream.length > 0) {
-        // RunPod wraps each yield in {"output": {...}}
-        output = statusData.stream[0].output || statusData.stream[0];
-      } else if (Array.isArray(output) && output.length === 1) {
-        output = output[0];
+      // Extract from output array if needed
+      if (Array.isArray(output) && output.length > 0) {
+        output = output[output.length - 1];
       }
       break;
     } else if (statusData.status === 'FAILED') {
