@@ -184,3 +184,9 @@ IMPLEMENTATION-ORDER.md
 LINACODEC-BE.md
 LINACODEC-FE.md
 LINACODEC-MW.md
+
+# Beads issue tracking
+.beads/
+
+# Ralph TUI
+.ralph-tui/
