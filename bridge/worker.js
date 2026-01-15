@@ -246,8 +246,9 @@ async function handleOpenAITTS(request, env) {
       }
 
       audioBytes = await s3Response.arrayBuffer();
-      contentType = s3Response.headers.get('Content-Type') || 'audio/ogg';
-      console.log('S3 Content-Type:', contentType);
+      // Always use audio/mpeg for OpenAI API compatibility (backend now outputs MP3)
+      contentType = 'audio/mpeg';
+      console.log('Using Content-Type:', contentType);
 
     } else if (output.audio_base64 || output.audio) {
       const audioBase64 = output.audio_base64 || output.audio;

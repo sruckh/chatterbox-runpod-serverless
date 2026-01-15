@@ -4,6 +4,8 @@ import logging
 import base64
 import io
 import uuid
+import subprocess
+import numpy as np
 import soundfile as sf
 import boto3
 from botocore.exceptions import NoCredentialsError
@@ -53,6 +55,48 @@ def cleanup_old_files(directory, days=2):
     except Exception as e:
         log.error(f"Cleanup failed: {e}")
 
+def encode_wav_to_mp3(wav_array: np.ndarray, sample_rate: int) -> bytes:
+    """Encode WAV numpy array to MP3 bytes using ffmpeg
+
+    Args:
+        wav_array: Audio samples as numpy array (float32 or int16)
+        sample_rate: Sample rate of the audio
+
+    Returns:
+        MP3 encoded bytes
+    """
+    # Convert to int16 if float
+    if wav_array.dtype == np.float32 or wav_array.dtype == np.float64:
+        audio_int16 = (wav_array * 32767).astype(np.int16)
+    else:
+        audio_int16 = wav_array.astype(np.int16)
+
+    raw_bytes = audio_int16.tobytes()
+
+    try:
+        process = subprocess.Popen(
+            [
+                'ffmpeg', '-y',
+                '-f', 's16le',
+                '-ar', str(sample_rate),
+                '-ac', '1',
+                '-i', 'pipe:0',
+                '-f', 'mp3',
+                '-b:a', '192k',
+                'pipe:1'
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        mp3_bytes, _ = process.communicate(input=raw_bytes)
+        log.info(f"Encoded {len(raw_bytes)} bytes WAV to {len(mp3_bytes)} bytes MP3")
+        return mp3_bytes
+    except Exception as e:
+        log.error(f"FFmpeg MP3 encoding failed: {e}")
+        raise
+
+
 def upload_to_s3(audio_buffer, filename):
     """Upload generated audio to S3 and return URL"""
     if not config.S3_BUCKET_NAME:
@@ -72,7 +116,7 @@ def upload_to_s3(audio_buffer, filename):
             audio_buffer,
             config.S3_BUCKET_NAME,
             filename,
-            ExtraArgs={'ContentType': 'audio/ogg'}
+            ExtraArgs={'ContentType': 'audio/mpeg'}
         )
         
         # Generate presigned URL
@@ -255,26 +299,26 @@ def handler_batch(job):
         sample_rate = inference_engine.model.sr
         log.info(f"Using model sample rate: {sample_rate}")
 
-        # Convert to audio bytes (OGG Vorbis)
+        # Convert to MP3 bytes for OpenAI API compatibility
         log.info("Converting audio tensor to numpy...")
-        audio_buffer = io.BytesIO()
         # Ensure wav is cpu numpy
         if hasattr(wav, 'cpu'):
             wav = wav.cpu().numpy()
         if hasattr(wav, 'numpy'):
             wav = wav.numpy()
 
-        # ChatterBox likely returns (channels, samples) or just (samples)
-        # Soundfile expects (samples, channels) usually, or just samples for mono
-        if len(wav.shape) > 1 and wav.shape[0] < wav.shape[1]:
-             wav = wav.T
+        # ChatterBox returns (channels, samples) or just (samples)
+        # Flatten to 1D for MP3 encoding
+        wav = wav.squeeze()
+        if len(wav.shape) > 1:
+            wav = wav.flatten()
 
-        log.info(f"Writing audio to buffer (shape: {wav.shape})...")
-        sf.write(audio_buffer, wav, sample_rate, format='OGG', subtype='VORBIS')
-        audio_buffer.seek(0)
+        log.info(f"Encoding audio to MP3 (shape: {wav.shape}, samples: {len(wav)})...")
+        mp3_bytes = encode_wav_to_mp3(wav, sample_rate)
+        audio_buffer = io.BytesIO(mp3_bytes)
 
         # Upload to S3 or return base64
-        filename = f"{session_id}_{uuid.uuid4()}.ogg"
+        filename = f"{session_id}_{uuid.uuid4()}.mp3"
 
         # Local output path for persistence in volume
         output_path = os.path.join(config.OUTPUT_DIR, filename)
