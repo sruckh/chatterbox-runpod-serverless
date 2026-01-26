@@ -1,0 +1,140 @@
+<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="2" value="Client / Application" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="320" y="20" width="160" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="3" value="Cloudflare Worker&lt;br&gt;(Middleware)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#333333;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="120" y="140" width="560" height="280" as="geometry"/>
+    </mxCell>
+    <mxCell id="4" value="POST /v1/audio/speech" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="150" y="180" width="180" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="5" value="POST /api/tts/stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="360" y="180" width="180" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="6" value="Voice Mapping Cache&lt;br&gt;(R2 voices.json)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="470" y="260" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="7" value="OpenAI API Translator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="150" y="260" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="8" value="Stream Processor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="310" y="260" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="9" value="RunPod Serverless&lt;br&gt;(Backend GPU)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#333333;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="120" y="480" width="560" height="200" as="geometry"/>
+    </mxCell>
+    <mxCell id="10" value="handler.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="150" y="520" width="120" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="11" value="inference.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="290" y="520" width="120" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="12" value="ChatterBox Turbo&lt;br&gt;(350M params)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="430" y="520" width="120" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="13" value="LinaCodec Encoder/Decoder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="150" y="600" width="140" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="14" value="FFmpeg MP3 Encoder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="310" y="600" width="140" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="15" value="S3 / R2 Storage" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="680" y="500" width="100" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="16" value="R2 Voice Files" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="680" y="260" width="100" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="17" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="2" target="3">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="350" as="sourcePoint"/>
+        <mxPoint x="450" y="300" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="18" value="TTS Request" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;fontColor=#333333;" vertex="1" connectable="0" parent="17">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="19" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="3" target="9">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="400" as="sourcePoint"/>
+        <mxPoint x="450" y="350" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="20" value="RunPod API (/run, /runsync, /stream)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#333333;" vertex="1" connectable="0" parent="19">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint y="-10" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="21" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#82b366;dashed=1;" edge="1" parent="1" source="3" target="16">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="400" as="sourcePoint"/>
+        <mxPoint x="450" y="350" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="22" value="Load voices.json" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#333333;" vertex="1" connectable="0" parent="21">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint x="-5" y="-10" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="23" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#82b366;dashed=1;" edge="1" parent="1" source="9" target="15">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="400" as="sourcePoint"/>
+        <mxPoint x="450" y="350" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="24" value="Upload batch audio" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#333333;" vertex="1" connectable="0" parent="23">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint x="-5" y="-10" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="25" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="9" target="2">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="320" y="660" as="sourcePoint"/>
+        <mxPoint x="370" y="610" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="26" value="Audio Response (MP3/PCM)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#333333;" vertex="1" connectable="0" parent="25">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint y="-10" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="27" value="Batch Mode: /runsync" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#666666;" vertex="1" parent="1">
+      <mxGeometry x="50" y="360" width="120" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="28" value="Streaming: /run + /stream" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#666666;" vertex="1" parent="1">
+      <mxGeometry x="200" y="360" width="130" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="29" value="HuggingFace Hub" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="120" y="720" width="120" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="30" value="" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=#d79b00;dashed=1;" edge="1" parent="1" source="9" target="29">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="450" as="sourcePoint"/>
+        <mxPoint x="450" y="400" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="31" value="Download model on first run" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;fontColor=#333333;" vertex="1" connectable="0" parent="30">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint x="20" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="32" value="RunPod Volume" style="shape=folder;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="270" y="720" width="140" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="33" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;strokeColor=#82b366;dashed=1;" edge="1" parent="1" source="9" target="32">
+      <mxGeometry width="50" height="50" relative="1" as="geometry">
+        <mxPoint x="400" y="500" as="sourcePoint"/>
+        <mxPoint x="450" y="450" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="34" value="Cache model &amp; audio" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;fontColor=#333333;" vertex="1" connectable="0" parent="33">
+      <mxGeometry x="-0.2" y="2" relative="1" as="geometry">
+        <mxPoint x="10" as="offset"/>
+      </mxGeometry>
+    </mxCell>
+  </root>
+</mxGraphModel>
